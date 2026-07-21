@@ -37,7 +37,8 @@
 }
 
 /* Technical Precision Grid Background */
-.bg-tech-grid {
+.bg-tech-grid,
+.bg-subtle-grid {
   background-size: 40px 40px;
   background-image: 
     linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
@@ -45,7 +46,16 @@
 }
 
 /* Logo Radial Ambient Glow */
-.bg-[#DF00FF]-glow {
+.bg-ambient-glow,
+.bg-\[\#DF00FF\]-glow {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 1200px;
+  height: 600px;
+  pointer-events: none;
   background: radial-gradient(circle at 50% 0%, rgba(168, 85, 247, 0.15) 0%, rgba(223, 0, 255, 0.03) 60%, transparent 80%);
 }
 

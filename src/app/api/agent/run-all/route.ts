@@ -8,17 +8,27 @@ export async function POST() {
     const traces: ExecutionTrace[] = [];
     const reports: IncidentReport[] = [];
 
+    const errors: Array<{ index: number; error: string }> = [];
+
     for (let i = 1; i <= 10; i++) {
-      const trace = await runFakeExecution(i);
-      const report = await demoIncidentAnalyzer.analyze(trace);
-      traces.push(trace);
-      reports.push(report);
+      try {
+        const trace = await runFakeExecution(i);
+        const report = await demoIncidentAnalyzer.analyze(trace);
+        traces.push(trace);
+        reports.push(report);
+      } catch (err) {
+        errors.push({
+          index: i,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
     return NextResponse.json({
-      success: true,
+      success: traces.length > 0,
       traces,
       reports,
+      ...(errors.length > 0 ? { errors } : {}),
     });
   } catch (error) {
     return NextResponse.json(

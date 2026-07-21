@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Presentation, X, Play, ChevronRight, ChevronLeft, CheckCircle2, Clock, Terminal } from 'lucide-react';
 
 interface WalkthroughModalProps {
@@ -15,6 +15,24 @@ export const WalkthroughModal: React.FC<WalkthroughModalProps> = ({
   onSelectTraceIndex,
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    closeButtonRef.current?.focus();
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -71,10 +89,17 @@ export const WalkthroughModal: React.FC<WalkthroughModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className="lightswind-card max-w-2xl w-full p-6 border border-[#DF00FF]/40 bg-[#09090D] rounded-2xl shadow-2xl relative">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="walkthrough-modal-title"
+        className="lightswind-card max-w-2xl w-full p-6 border border-[#DF00FF]/40 bg-[#09090D] rounded-2xl shadow-2xl relative"
+      >
         {/* Close button */}
         <button
+          ref={closeButtonRef}
           onClick={onClose}
+          aria-label="Close modal"
           className="absolute top-4 right-4 p-1.5 rounded-lg bg-[#13131A] text-zinc-400 hover:text-white transition-colors"
         >
           <X className="w-5 h-5" />
@@ -86,7 +111,9 @@ export const WalkthroughModal: React.FC<WalkthroughModalProps> = ({
             <Presentation className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-white tracking-tight">90-Second Hackathon Demo Walkthrough</h2>
+            <h2 id="walkthrough-modal-title" className="text-base font-bold text-white tracking-tight">
+              90-Second Hackathon Demo Walkthrough
+            </h2>
             <p className="text-xs text-zinc-400 font-mono">YC Pitch Guide & Timestamped Presenter Script</p>
           </div>
         </div>

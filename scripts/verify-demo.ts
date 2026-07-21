@@ -58,23 +58,49 @@ async function runVerificationSuite() {
     passed = false;
   }
 
-  // Assertion 4: SigNoz Link Trace ID Integrity (32 hex characters)
+  // Assertion 4: SigNoz Link Trace ID Integrity (32 hex characters, non-zero)
   console.log(`\n4️⃣  Verifying SigNoz Link Trace ID Format:`);
   let validTraceIds = true;
   for (const t of traces) {
-    if (!t.traceId || t.traceId.length !== 32 || !/^[0-9a-fA-F]{32}$/.test(t.traceId)) {
+    if (!t.traceId || t.traceId.length !== 32 || t.traceId === '00000000000000000000000000000000' || !/^[0-9a-fA-F]{32}$/.test(t.traceId)) {
       console.error(`❌ Invalid trace ID format for trace #${t.index}: ${t.traceId}`);
       validTraceIds = false;
     }
   }
   if (validTraceIds) {
-    console.log('   ✓ Assertion 4 Passed: All 10 trace IDs are valid 32-hex OTLP trace formats.');
+    console.log('   ✓ Assertion 4 Passed: All 10 trace IDs are valid, non-zero 32-hex OTLP trace formats.');
   } else {
     passed = false;
   }
 
-  // Assertion 5: Copy Audit for Residual "10%" Language
-  console.log(`\n5️⃣  Auditing UI Codebase for Residual "10%" Copy:`);
+  // Assertion 5: Analyzer Report Output Assertions
+  console.log(`\n5️⃣  Verifying Analyzer Reports Integrity:`);
+  let validReports = true;
+  if (reports.length !== 10) {
+    console.error(`❌ Expected 10 reports, got ${reports.length}`);
+    validReports = false;
+  } else {
+    for (let i = 0; i < 10; i++) {
+      const r = reports[i];
+      const t = traces[i];
+      if (r.severity !== t.status) {
+        console.error(`❌ Report severity mismatch for trace #${t.index}: report=${r.severity}, trace=${t.status}`);
+        validReports = false;
+      }
+      if ((t.index === 4 || t.index === 8) && r.analysisCategory !== 'semantic') {
+        console.error(`❌ Expected semantic category for trace #${t.index}, got ${r.analysisCategory}`);
+        validReports = false;
+      }
+    }
+  }
+  if (validReports) {
+    console.log('   ✓ Assertion 5 Passed: All generated reports match expected severities & analysis categories.');
+  } else {
+    passed = false;
+  }
+
+  // Assertion 6: Copy Audit for Residual "10%" Language
+  console.log(`\n6️⃣  Auditing UI Codebase for Residual "10%" Copy:`);
   const componentsDir = path.join(process.cwd(), 'src/components');
   const filesToAudit = fs.readdirSync(componentsDir).map((f) => path.join(componentsDir, f));
   filesToAudit.push(path.join(process.cwd(), 'src/lib/analyzer/index.ts'));
@@ -89,7 +115,7 @@ async function runVerificationSuite() {
   }
 
   if (!residualCopyFound) {
-    console.log(`   ✓ Assertion 5 Passed: Zero residual "10%" copy found in UI components or analyzer.`);
+    console.log(`   ✓ Assertion 6 Passed: Zero residual "10%" copy found in UI components or analyzer.`);
   } else {
     passed = false;
   }

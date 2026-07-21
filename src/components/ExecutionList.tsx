@@ -69,16 +69,22 @@ export const ExecutionList: React.FC<ExecutionListProps> = ({
       {/* Incident Case Grid */}
       <div className="space-y-3">
         {incidentScenarios.map((scen) => {
-          const matchingTrace = traces.find((t) => t.index === scen.index) || traces[0];
-          const isSelected = selectedTraceId === matchingTrace?.id;
+          const matchingTrace = traces.find((t) => t.index === scen.index);
+          const isSelected = matchingTrace ? selectedTraceId === matchingTrace.id : false;
+          const isDisabled = !matchingTrace;
 
           return (
-            <motion.div
+            <motion.button
               key={scen.index}
-              whileHover={{ scale: 1.005 }}
+              type="button"
+              disabled={isDisabled}
+              aria-pressed={isSelected}
+              whileHover={{ scale: isDisabled ? 1 : 1.005 }}
               onClick={() => matchingTrace && onSelectTrace(matchingTrace)}
-              className={`p-5 rounded-2xl border text-left cursor-pointer transition-all btn-tactile ${
-                isSelected
+              className={`w-full p-5 rounded-2xl border text-left transition-all btn-tactile ${
+                isDisabled
+                  ? 'opacity-40 cursor-not-allowed bg-[#0E0E12] border-white/5'
+                  : isSelected
                   ? 'bg-[#14141A] border-[#A855F7] shadow-xl shadow-[#A855F7]/20 ring-1 ring-[#A855F7]'
                   : 'bg-[#0E0E12] border-white/10 hover:border-zinc-700'
               }`}
@@ -108,7 +114,7 @@ export const ExecutionList: React.FC<ExecutionListProps> = ({
 
               <h3 className="text-base font-sans font-bold text-white tracking-tight">{scen.title}</h3>
               <p className="text-xs font-sans text-zinc-300 mt-1 leading-relaxed">{scen.tagline}</p>
-            </motion.div>
+            </motion.button>
           );
         })}
       </div>

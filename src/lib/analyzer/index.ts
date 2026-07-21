@@ -6,8 +6,19 @@ export class DemoIncidentAnalyzer implements IncidentAnalyzer {
 
   async analyze(trace: ExecutionTrace): Promise<IncidentReport> {
     // 1. Check for Deterministic Analysis triggers (Looping, Failed Midway, High Tokens)
-    const isLooping = trace.toolCalls.length >= 5 && new Set(trace.toolCalls).size === 1;
-    const isFailedMidway = trace.status === 'critical' && (trace.error || trace.response.includes('ERROR:'));
+    const isLooping =
+      trace.toolCalls.length >= 5 &&
+      new Set(trace.toolCalls).size === 1 &&
+      (trace.attributes['loop.detected'] === 'true' ||
+        trace.attributes['void.loop_detected'] === 'true' ||
+        trace.steps.some((s) => s.kind === 'FAILED' && s.label.includes('Loop')) ||
+        trace.index === 6);
+
+    const isFailedMidway =
+      trace.status === 'critical' &&
+      (trace.outputTokens === 0 || trace.steps.some((s) => s.kind === 'FAILED' || s.status === 'error')) &&
+      (!!trace.error || trace.response.includes('ERROR:'));
+
     const isHighTokens = trace.totalTokens > 5000;
 
     if (isLooping) {
@@ -72,13 +83,14 @@ export class DemoIncidentAnalyzer implements IncidentAnalyzer {
     }
 
     if (isHighTokens) {
+      const overagePct = Math.round(((trace.totalTokens - 5000) / 5000) * 100);
       return {
         incident: 'High Token Usage',
         severity: 'warning',
         confidence: 95,
         evidence: [
           `Input Tokens: ${trace.inputTokens.toLocaleString()} | Output Tokens: ${trace.outputTokens.toLocaleString()}`,
-          `Total Tokens: ${trace.totalTokens.toLocaleString()} (exceeds 5,000 threshold by 94%)`,
+          `Total Tokens: ${trace.totalTokens.toLocaleString()} (exceeds 5,000 threshold by ${overagePct}%)`,
           'Raw audit JSON logs injected into prompt context without prior truncation',
         ],
         timeline: [
@@ -99,62 +111,91 @@ export class DemoIncidentAnalyzer implements IncidentAnalyzer {
       };
     }
 
-    // 2. Semantic Analysis for Category-Flagged Demo Traces (Exec 4 & Exec 8)
-    if (trace.index === 4) {
-      // Hallucination
-      return {
-        incident: 'Ungrounded Response / Hallucination',
-        severity: 'warning',
-        confidence: 94,
-        evidence: [
-          `User Prompt: "${trace.prompt}"`,
-          `Agent Output: "${trace.response}"`,
-          'Telemetry audit confirms 0 weather tools were executed',
-          'Response contains factual claims not backed by tool execution traces',
-        ],
-        timeline: [
-          '10:08:12.010 - User query parsed by NovaFlow Copilot',
-          '10:08:12.045 - Reasoning step bypassed weather API tool lookup',
-          '10:08:12.285 - Synthetic response emitted without factual grounding span',
-        ],
-        recommendation: 'Enforce tool execution policy for domain-specific queries or add grounding check prior to response emission.',
-        analysisCategory: 'semantic',
-        samplingInfo: DemoIncidentAnalyzer.SAMPLING_INFO_COPY,
-        disclaimer: DemoIncidentAnalyzer.CONFIDENCE_DISCLAIMER,
-        futureRemediation: {
-          action: 'Linear Ticket & Prompt Guard Policy',
-          target: 'novaflow/prompts#hallucination-guard',
-          details: 'Future VOID Server creates Linear ticket LIN-402 to update prompt instructions requiring weather tool validation.',
-        },
-      };
+    // 2. Semantic Analysis for Category-Flagged Traces
+    const isHallucination =
+      trace.attributes['incident.type'] === 'hallucination' ||
+      (trace.prompt.toLowerCase().includes('weather') && trace.toolCalls.length === 0) ||
+      trace.index === 4;
+
+    const isWrongTool =
+      trace.attributes['requested.action'] === 'github.createIssue' ||
+      (trace.prompt.toLowerCase().includes('issue') && trace.toolCalls.includes('slack.sendMessage')) ||
+      trace.index === 8;
+
+    if (trace.flaggedForSemantic || isHallucination || isWrongTool) {
+      if (isHallucination) {
+        return {
+          incident: 'Ungrounded Response / Hallucination',
+          severity: 'warning',
+          confidence: 94,
+          evidence: [
+            `User Prompt: "${trace.prompt}"`,
+            `Agent Output: "${trace.response}"`,
+            'Telemetry audit confirms 0 weather tools were executed',
+            'Response contains factual claims not backed by tool execution traces',
+          ],
+          timeline: [
+            '10:08:12.010 - User query parsed by NovaFlow Copilot',
+            '10:08:12.045 - Reasoning step bypassed weather API tool lookup',
+            '10:08:12.285 - Synthetic response emitted without factual grounding span',
+          ],
+          recommendation: 'Enforce tool execution policy for domain-specific queries or add grounding check prior to response emission.',
+          analysisCategory: 'semantic',
+          samplingInfo: DemoIncidentAnalyzer.SAMPLING_INFO_COPY,
+          disclaimer: DemoIncidentAnalyzer.CONFIDENCE_DISCLAIMER,
+          futureRemediation: {
+            action: 'Linear Ticket & Prompt Guard Policy',
+            target: 'novaflow/prompts#hallucination-guard',
+            details: 'Future VOID Server creates Linear ticket LIN-402 to update prompt instructions requiring weather tool validation.',
+          },
+        };
+      }
+
+      if (isWrongTool) {
+        return {
+          incident: 'Wrong Tool Selection / Action Mismatch',
+          severity: 'critical',
+          confidence: 98,
+          evidence: [
+            `User requested: "${trace.prompt}" (Expected: github.createIssue)`,
+            `Agent executed: ${trace.toolCalls.join(', ')} (slack.sendMessage)`,
+            'Action mismatch: User explicitly requested issue creation on GitHub, but agent posted to Slack channel #dev-general instead',
+          ],
+          timeline: [
+            '10:21:40.010 - User prompt requested GitHub issue creation for payment bug',
+            '10:21:40.050 - Tool selection node misclassified intent as Slack notification',
+            '10:21:40.075 - slack.sendMessage executed with payment bug description',
+            '10:21:40.220 - Agent reported success despite wrong tool execution',
+          ],
+          recommendation: 'Refine tool definitions, improve few-shot tool selection examples, and block destructive mismatches.',
+          analysisCategory: 'semantic',
+          samplingInfo: DemoIncidentAnalyzer.SAMPLING_INFO_COPY,
+          disclaimer: DemoIncidentAnalyzer.CONFIDENCE_DISCLAIMER,
+          futureRemediation: {
+            action: 'Automated GitHub Issue Creation',
+            target: 'novaflow/payments#188',
+            details: 'Future VOID Server automatically creates the missing GitHub issue for payment gateway timeout bug and notifies Slack.',
+          },
+        };
+      }
     }
 
-    if (trace.index === 8) {
-      // Wrong Tool Selection
+    // Preserve severity for unhandled non-success traces
+    if (trace.status !== 'success') {
       return {
-        incident: 'Wrong Tool Selection / Action Mismatch',
-        severity: 'critical',
-        confidence: 98,
+        incident: trace.title || 'Unclassified Incidental Anomaly',
+        severity: trace.status,
+        confidence: 90,
         evidence: [
-          `User requested: "${trace.prompt}" (Expected: github.createIssue)`,
-          `Agent executed: ${trace.toolCalls.join(', ')} (slack.sendMessage)`,
-          'Action mismatch: User explicitly requested issue creation on GitHub, but agent posted to Slack channel #dev-general instead',
+          `Trace status recorded as ${trace.status}`,
+          trace.error ? `Error recorded: ${trace.error}` : 'Spans indicated anomalous execution flow',
+          `Executed ${trace.toolCalls.length} tool(s): ${trace.toolCalls.join(', ') || 'none'}`,
         ],
-        timeline: [
-          '10:21:40.010 - User prompt requested GitHub issue creation for payment bug',
-          '10:21:40.050 - Tool selection node misclassified intent as Slack notification',
-          '10:21:40.075 - slack.sendMessage executed with payment bug description',
-          '10:21:40.220 - Agent reported success despite wrong tool execution',
-        ],
-        recommendation: 'Refine tool definitions, improve few-shot tool selection examples, and block destructive mismatches.',
-        analysisCategory: 'semantic',
+        timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
+        recommendation: 'Inspect telemetry details and system logs to diagnose anomalous trace execution.',
+        analysisCategory: 'deterministic',
         samplingInfo: DemoIncidentAnalyzer.SAMPLING_INFO_COPY,
         disclaimer: DemoIncidentAnalyzer.CONFIDENCE_DISCLAIMER,
-        futureRemediation: {
-          action: 'Automated GitHub Issue Creation',
-          target: 'novaflow/payments#188',
-          details: 'Future VOID Server automatically creates the missing GitHub issue for payment gateway timeout bug and notifies Slack.',
-        },
       };
     }
 

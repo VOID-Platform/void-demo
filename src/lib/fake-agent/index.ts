@@ -1,22 +1,25 @@
 import { voidSdk } from '@void-hq/sdk';
 import { ExecutionTrace, ExecutionStep } from '../types';
 
-let sdkInitialized = false;
+let initPromise: Promise<void> | null = null;
 
 async function ensureSdkInitialized() {
-  if (sdkInitialized) return;
-  try {
-    await voidSdk.init({
-      serviceName: 'novaflow-saas-copilot',
-      environment: 'production-demo',
-      otlp: {
-        endpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'http://localhost:4318/v1/traces',
-      },
-    });
-    sdkInitialized = true;
-  } catch (e) {
-    console.warn('VOID SDK init note:', e);
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        await voidSdk.init({
+          serviceName: 'novaflow-saas-copilot',
+          environment: 'production-demo',
+          otlp: {
+            endpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'http://localhost:4318/v1/traces',
+          },
+        });
+      } catch (e) {
+        console.warn('VOID SDK init note:', e);
+      }
+    })();
   }
+  return initPromise;
 }
 
 // Generate fallback deterministic trace ID helper if span context missing
@@ -63,8 +66,7 @@ export async function runFakeExecution(index: number): Promise<ExecutionTrace> {
       resultTrace = await runExec10(fallbackTraceId);
       break;
     default:
-      resultTrace = await runExec1(fallbackTraceId);
-      break;
+      throw new Error(`Unsupported scenario index: ${index}. Scenario index must be an integer between 1 and 10.`);
   }
 
   // Force immediate flush of OpenTelemetry spans to SigNoz OTLP Collector
@@ -376,7 +378,7 @@ async function runExec6(fallbackTraceId: string): Promise<ExecutionTrace> {
 
       // 5 consecutive duplicate tool calls
       for (let i = 0; i < 5; i++) {
-        await voidSdk.tool({ name: 'github.createIssue', input: { repo: 'novaflow/core', title: 'Sync bug', iteration: i + 1 } }, () => ({ issueNumber: 402 + i }));
+        await voidSdk.tool({ name: 'github.createIssue', input: { repo: 'novaflow/core', title: 'Sync bug' } }, () => ({ issueNumber: 402 + i }));
       }
 
       return {
@@ -547,8 +549,11 @@ async function runExec9(fallbackTraceId: string): Promise<ExecutionTrace> {
         });
       }
     );
-  } catch {
-    // Expected error for trace instrumentation
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes('ConnectionResetError')) {
+      throw err;
+    }
   }
 
   return {

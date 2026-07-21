@@ -13,7 +13,7 @@ export default function Home() {
         <IntroHook onComplete={() => setShowIntro(false)} />
       )}
       {!showIntro && (
-        <DiagnosisStage onReplayIntro={() => setShowIntro(true)} />
+        <DiagnosisStage />
       )}
     </>
   );

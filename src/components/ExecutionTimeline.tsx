@@ -22,17 +22,24 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({ trace }) =
     );
   }
 
-  const isFailed = trace.status === 'critical' && (trace.error || trace.index === 9);
+  const hasStepError = trace.steps.some((s) => s.status === 'error' || s.kind === 'FAILED');
+  const isFailed = trace.status === 'critical' || hasStepError || !!trace.error;
   const isSemantic = trace.flaggedForSemantic;
 
   const toolStep = trace.steps.find((s) => s.kind === 'TOOL_EXECUTION' || s.kind === 'TOOL_SELECTION');
   const toolDesc = toolStep ? `Decided to invoke tool: ${toolStep.label}` : 'Zero tools invoked (Direct text response generated).';
 
+  const outcomeText = trace.error
+    ? `Execution failed: ${trace.error}`
+    : hasStepError
+    ? `Execution finished with span errors (status: ${trace.status})`
+    : `Completed with status: ${trace.status}`;
+
   const reasoningSteps = [
     { title: 'Planning', label: 'Prompt Intent Breakdown', desc: `Agent parsed prompt intent: "${trace.prompt}"` },
     { title: 'Reasoning', label: 'Context & Policy Evaluation', desc: 'Evaluated system prompt, history, and available tool definitions.' },
     { title: 'Tool Decision', label: 'Tool Selection & Invocation', desc: toolDesc },
-    { title: 'Outcome', label: 'Execution Verification', desc: trace.error ? `Execution failed: ${trace.error}` : `Completed with status: ${trace.status}` },
+    { title: 'Outcome', label: 'Execution Verification', desc: outcomeText },
   ];
 
   return (
@@ -74,7 +81,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({ trace }) =
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {reasoningSteps.map((step, idx) => {
             const isSelected = activeStep === idx;
-            const isStepError = isFailed && idx === 3;
+            const isStepError = isFailed && (idx === 3 || trace.steps[idx]?.status === 'error');
 
             return (
               <div
@@ -119,7 +126,7 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({ trace }) =
           <div>
             <h4 className="text-sm font-sans font-bold text-white flex items-center gap-2">
               <Terminal className="w-4 h-4 text-[#A855F7]" />
-              <span>OpenTelemetry Trace Proof ({trace.steps.length} Spans)</span>
+              <span>Simulated Execution Steps (OTLP Trace Spans) ({trace.steps.length} Spans)</span>
             </h4>
             <p className="text-xs font-sans text-zinc-400 mt-0.5">
               Standard OTLP instrumentation captured every span without changing application code.

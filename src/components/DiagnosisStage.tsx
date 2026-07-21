@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { VoidLogo } from '@/components/VoidLogo';
 import { ExecutionTrace, IncidentReport } from '@/lib/types';
+import { Header } from '@/components/Header';
+import { IncidentIntelligence } from '@/components/IncidentIntelligence';
 
 /* ─────────────────────────────────────────────────────────────────
    SCENARIO DEFINITIONS
@@ -397,7 +399,7 @@ const EvidencePanel: React.FC<{ trace: ExecutionTrace | null; report: IncidentRe
 /* ─────────────────────────────────────────────────────────────────
    MAIN STAGE
    ───────────────────────────────────────────────────────────────── */
-export const DiagnosisStage: React.FC<{ onReplayIntro: () => void }> = ({ onReplayIntro }) => {
+export const DiagnosisStage: React.FC = () => {
   const [activeIdx, setActiveIdx] = useState(0);
   const [phase, setPhase] = useState<DiagnosisPhase>('idle');
   const [activeStepIndex, setActiveStepIndex] = useState(-1);
@@ -443,37 +445,51 @@ export const DiagnosisStage: React.FC<{ onReplayIntro: () => void }> = ({ onRepl
         setTrace(data.trace);
         setReport(data.report);
         setPhase('complete');
+      } else {
+        setPhase('idle');
       }
     } catch {
       setPhase('idle');
     }
   }, [isRunning, scenario]);
 
+  const [isExecutingAll, setIsExecutingAll] = useState(false);
+  const [activeCount, setActiveCount] = useState(0);
+
+  const handleRunAll = useCallback(async () => {
+    if (isRunning || isExecutingAll) return;
+    setIsExecutingAll(true);
+    setActiveCount(10);
+    try {
+      const res = await fetch('/api/agent/run-all', { method: 'POST' });
+      const data = await res.json();
+      if (data.success && data.traces && data.traces.length > 0) {
+        setTrace(data.traces[0]);
+        setReport(data.reports[0]);
+        setPhase('complete');
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsExecutingAll(false);
+      setActiveCount(0);
+    }
+  }, [isRunning, isExecutingAll]);
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#070709] bg-tech-grid">
+    <div className="min-h-screen flex flex-col bg-[#070709] bg-subtle-grid text-white">
+      <Header
+        onRunAll={handleRunAll}
+        isExecuting={isExecutingAll}
+        activeCount={activeCount}
+      />
 
       {/* Ambient glow */}
       <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] pointer-events-none"
         style={{ background: 'radial-gradient(ellipse at 50% 0%, rgba(168,85,247,0.07) 0%, transparent 70%)' }} />
 
-      {/* Top bar */}
-      <header className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-white/6 max-w-7xl mx-auto w-full">
-        <div className="flex items-center gap-3">
-          <VoidLogo size={26} glow={true} />
-          <div>
-            <span className="font-extrabold text-white text-sm font-sans tracking-tight">VOID</span>
-            <p className="text-[10px] font-mono text-zinc-600 leading-none mt-0.5">AI Incident Intelligence</p>
-          </div>
-        </div>
-        <button onClick={onReplayIntro}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-transparent border border-white/8 text-zinc-500 hover:text-zinc-300 hover:border-white/15 text-[11px] font-mono transition-all btn-tactile">
-          <RotateCcw className="w-3 h-3" />
-          Replay story
-        </button>
-      </header>
-
       {/* Main */}
-      <main className="relative z-10 flex-1 flex flex-col gap-8 px-4 pt-10 pb-20 max-w-5xl mx-auto w-full">
+      <main className="relative z-10 flex-1 flex flex-col gap-8 px-4 pt-6 pb-20 max-w-5xl mx-auto w-full">
 
         {/* ── SCENARIO PILLS ── */}
         <div className="flex flex-wrap gap-2 justify-center">
@@ -491,17 +507,16 @@ export const DiagnosisStage: React.FC<{ onReplayIntro: () => void }> = ({ onRepl
           ))}
         </div>
 
-        {/* ── TWO-PANEL ── */}
-        <div className="w-full grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* ── TWO-PANEL: Execution flow (left) + VOID Incident Analysis (right) ── */}
+        <div className="w-full grid grid-cols-1 lg:grid-cols-[2fr_3.8fr] gap-6 items-start">
 
-          {/* LEFT */}
-          <div className="flex flex-col gap-6">
+          {/* LEFT — visual execution breadcrumbs */}
+          <div className="flex flex-col gap-5">
             <div>
-              <p className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest mb-1">NovaFlow AI Copilot</p>
-              <h2 className="text-xl font-extrabold font-sans text-white tracking-tight leading-tight">
-                {phase === 'idle' ? 'Ready to run' : phase === 'complete' ? 'Execution captured' : 'Executing…'}
+              <p className="text-[10px] font-mono text-zinc-600 uppercase tracking-widest mb-1">Execution trace</p>
+              <h2 className="text-base font-bold font-sans text-white tracking-tight leading-tight">
+                {phase === 'idle' ? 'Awaiting run' : phase === 'complete' ? 'Captured' : 'Running…'}
               </h2>
-              <p className="text-xs font-sans text-zinc-500 mt-1">{scenario.agentSteps[0].detail}</p>
             </div>
 
             <AgentVisualizer steps={scenario.agentSteps} phase={phase} activeStepIndex={activeStepIndex} />
@@ -511,7 +526,7 @@ export const DiagnosisStage: React.FC<{ onReplayIntro: () => void }> = ({ onRepl
               disabled={isRunning}
               whileHover={{ scale: isRunning ? 1 : 1.02 }}
               whileTap={{ scale: isRunning ? 1 : 0.98 }}
-              className={`flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl text-sm font-bold font-sans text-white transition-all shadow-lg ${
+              className={`flex items-center justify-center gap-2.5 px-5 py-2.5 rounded-lg text-sm font-bold font-sans text-white transition-all shadow-lg ${
                 isRunning
                   ? 'bg-zinc-800 cursor-not-allowed'
                   : 'bg-gradient-to-r from-[#DF00FF] via-[#A855F7] to-[#7E22CE] shadow-[#A855F7]/25 hover:shadow-[#A855F7]/45'
@@ -530,13 +545,10 @@ export const DiagnosisStage: React.FC<{ onReplayIntro: () => void }> = ({ onRepl
                 </>
               )}
             </motion.button>
-
-            <p className="text-[10px] font-mono text-zinc-700 leading-relaxed">
-              @void-hq/sdk instruments silently — application code untouched.
-            </p>
           </div>
 
-          {/* RIGHT */}
+
+          {/* RIGHT — VOID Incident Analysis (canonical design, do not modify) */}
           <AnimatePresence mode="wait">
             <motion.div
               key={`${activeIdx}-${phase}`}
@@ -563,10 +575,13 @@ export const DiagnosisStage: React.FC<{ onReplayIntro: () => void }> = ({ onRepl
           </AnimatePresence>
         </div>
 
-        {/* ── EVIDENCE PANEL ── */}
+        {/* ── OTLP EVIDENCE ACCORDION (collapsed by default) ── */}
         <AnimatePresence>
-          {phase === 'complete' && <EvidencePanel trace={trace} report={report} />}
+          {phase === 'complete' && (
+            <EvidencePanel trace={trace} report={report} />
+          )}
         </AnimatePresence>
+
 
       </main>
     </div>

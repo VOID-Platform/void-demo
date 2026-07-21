@@ -28,8 +28,12 @@ export const TraceDetails: React.FC<TraceDetailsProps> = ({ trace }) => {
           <h4 className="text-xs font-semibold text-white font-mono">OpenTelemetry Attributes & Spans</h4>
         </div>
 
-        <div className="flex items-center space-x-1.5 p-1 rounded-lg bg-[#030307] border border-[#1F1F24]">
+        <div className="flex items-center space-x-1.5 p-1 rounded-lg bg-[#030307] border border-[#1F1F24]" role="tablist" aria-label="Trace detail view selector">
           <button
+            id="tab-attributes"
+            role="tab"
+            aria-selected={activeTab === 'attributes'}
+            aria-controls="panel-attributes"
             onClick={() => setActiveTab('attributes')}
             className={`px-2.5 py-1 rounded text-[11px] font-mono font-medium transition-all ${
               activeTab === 'attributes'
@@ -40,6 +44,10 @@ export const TraceDetails: React.FC<TraceDetailsProps> = ({ trace }) => {
             SemConv Attributes
           </button>
           <button
+            id="tab-raw"
+            role="tab"
+            aria-selected={activeTab === 'raw'}
+            aria-controls="panel-raw"
             onClick={() => setActiveTab('raw')}
             className={`px-2.5 py-1 rounded text-[11px] font-mono font-medium transition-all ${
               activeTab === 'raw'
@@ -54,7 +62,7 @@ export const TraceDetails: React.FC<TraceDetailsProps> = ({ trace }) => {
 
       {/* Attributes View */}
       {activeTab === 'attributes' && (
-        <div className="space-y-3">
+        <div id="panel-attributes" role="tabpanel" aria-labelledby="tab-attributes" className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
             {Object.entries(trace.attributes).map(([key, val]) => (
               <div key={key} className="p-2 rounded-lg bg-[#030307] border border-[#1F1F24] flex items-center justify-between">
@@ -93,7 +101,7 @@ export const TraceDetails: React.FC<TraceDetailsProps> = ({ trace }) => {
 
       {/* Raw JSON View */}
       {activeTab === 'raw' && (
-        <pre className="p-3 rounded-xl bg-[#030307] border border-[#1F1F24] text-[11px] font-mono text-zinc-300 max-h-52 overflow-y-auto">
+        <pre id="panel-raw" role="tabpanel" aria-labelledby="tab-raw" className="p-3 rounded-xl bg-[#030307] border border-[#1F1F24] text-[11px] font-mono text-zinc-300 max-h-52 overflow-y-auto">
           {JSON.stringify(trace, null, 2)}
         </pre>
       )}

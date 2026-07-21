@@ -68,15 +68,22 @@ export const IntroHook: React.FC<IntroHookProps> = ({ onComplete }) => {
         return () => clearTimeout(t);
       }
     }
-  }, [act, act1Sentence, act2Branches, act4DimCount]);
+  }, [act, act2Branches, act4DimCount]);
 
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') {
+      const targetTag = (e.target as HTMLElement)?.tagName;
+      const isInteractive = targetTag === 'BUTTON' || targetTag === 'A' || targetTag === 'INPUT';
+
+      if (e.key === ' ' || e.key === 'ArrowRight') {
+        if (e.key === ' ' && isInteractive) return;
+        e.preventDefault();
         if (act < 5) setAct((prev) => (prev + 1) as any);
         else onComplete();
       } else if (e.key === 'ArrowLeft') {
+        if (isInteractive) return;
+        e.preventDefault();
         if (act > 1) setAct((prev) => (prev - 1) as any);
       } else if (e.key === 'Escape') {
         onComplete();
@@ -108,7 +115,7 @@ export const IntroHook: React.FC<IntroHookProps> = ({ onComplete }) => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 bg-[#070709] bg-tech-grid text-white flex flex-col justify-between p-6 md:p-12 overflow-hidden select-none">
+    <div className="fixed inset-0 z-50 bg-[#070709] bg-tech-grid text-white flex flex-col justify-between p-6 md:p-12 overflow-x-hidden overflow-y-auto select-none">
       {/* Background Radial Logo Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[900px] h-[900px] bg-radial-gradient from-[#A855F7]/12 via-[#DF00FF]/05 to-transparent blur-[140px] pointer-events-none" />
 
@@ -417,6 +424,8 @@ export const IntroHook: React.FC<IntroHookProps> = ({ onComplete }) => {
             <button
               key={a}
               onClick={() => setAct(a as any)}
+              aria-label={`Act ${a}`}
+              aria-current={act === a ? 'step' : undefined}
               className={`h-2 rounded-full transition-all duration-300 ${
                 act === a ? 'w-8 bg-[#A855F7]' : 'w-2 bg-zinc-800 hover:bg-zinc-700'
               }`}

@@ -3,6 +3,14 @@ import { runFakeExecution } from '@/lib/fake-agent';
 import { demoIncidentAnalyzer } from '@/lib/analyzer';
 
 export async function GET() {
+  return NextResponse.json({
+    success: true,
+    message: 'Trace execution endpoint is available. Use POST /api/traces or POST /api/agent/run-all to execute AI agent runs and emit telemetry.',
+    data: [],
+  });
+}
+
+export async function POST() {
   try {
     const results = [];
     for (let i = 1; i <= 10; i++) {

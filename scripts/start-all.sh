@@ -48,7 +48,9 @@ echo ""
 
 # 3. Seed initial OpenTelemetry traces
 echo "🤖 Seeding initial AI agent telemetry traces to SigNoz..."
-npx tsx scripts/verify-demo.ts || true
+if ! npx tsx scripts/verify-demo.ts; then
+  echo "⚠️ WARNING: Initial telemetry seeding/verification encountered issues. Launching web app in best-effort mode..."
+fi
 
 echo ""
 echo "===================================================="
