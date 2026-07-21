@@ -10,7 +10,7 @@ cd "$DEMO_DIR"
 
 echo "===================================================="
 echo "🚀 [VOID DEMO UNIFIED LAUNCHER]"
-echo "Starting Self-Hosted SigNoz & Demo Telemetry"
+echo "Starting Self-Hosted SigNoz & Web Application"
 echo "===================================================="
 
 # 1. Start SigNoz infrastructure
@@ -30,30 +30,33 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
   fi
   RETRY_COUNT=$((RETRY_COUNT+1))
   echo "   Waiting for OTLP collector endpoint... ($RETRY_COUNT/$MAX_RETRIES)"
-  sleep 3
+  sleep 2
 done
 
 if [ "$HEALTHY" = true ]; then
   echo "✅ SigNoz OTLP Collector is live and ready at http://localhost:4318/v1/traces!"
 else
-  echo "⚠️ SigNoz Collector did not respond in time, proceeding to attempt demo execution anyway..."
+  echo "⚠️ SigNoz Collector did not respond in time, proceeding to launch Next.js application anyway..."
 fi
 
 echo ""
 echo "----------------------------------------------------"
-echo "🌐 SigNoz Web Dashboard: http://localhost:3301 (or http://localhost:8080)"
+echo "🌐 SigNoz Web Dashboard: http://localhost:8080 (or http://localhost:3301)"
+echo "💻 VOID Demo Web App:   http://localhost:3000"
 echo "----------------------------------------------------"
 echo ""
 
-# 3. Execute the AI Agent Telemetry Demo
-echo "🤖 Executing AI Agent Telemetry Demo..."
-echo "----------------------------------------------------"
-npx tsx src/demo.ts
+# 3. Seed initial OpenTelemetry traces
+echo "🤖 Seeding initial AI agent telemetry traces to SigNoz..."
+if ! npx tsx scripts/verify-demo.ts; then
+  echo "⚠️ WARNING: Initial telemetry seeding/verification encountered issues. Launching web app in best-effort mode..."
+fi
 
 echo ""
 echo "===================================================="
-echo "🎉 ALL SYSTEMS GO!"
-echo "SigNoz is running in self-hosted mode and telemetry traces were sent."
-echo "View your traces in the SigNoz Dashboard: http://localhost:3301"
-echo "To stop SigNoz containers later, run: npm run signoz:down"
+echo "🎉 ALL SYSTEMS GO! Launching Next.js Web App on http://localhost:3000..."
 echo "===================================================="
+echo ""
+
+# 4. Launch Next.js Dev Server on Port 3000
+npm run dev

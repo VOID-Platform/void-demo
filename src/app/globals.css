@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-main: #070709;
+    --bg-surface: #0E0E12;
+    --bg-elevated: #14141A;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-purple: rgba(168, 85, 247, 0.3);
+    --accent-violet: #DF00FF;
+    --accent-purple: #A855F7;
+    --text-primary: #FFFFFF;
+    --text-secondary: #A1A1AA;
+    --text-muted: #71717A;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow-x: hidden;
+    font-size: 14px;
+    line-height: 1.6;
+    letter-spacing: -0.015em;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  }
+
+  button, a {
+    cursor: pointer;
+  }
+}
+
+/* Technical Precision Grid Background */
+.bg-tech-grid,
+.bg-subtle-grid {
+  background-size: 40px 40px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+/* Logo Radial Ambient Glow */
+.bg-ambient-glow {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 1200px;
+  height: 600px;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 0%, rgba(168, 85, 247, 0.15) 0%, rgba(223, 0, 255, 0.03) 60%, transparent 80%);
+}
+
+/* Technical Card Shell */
+.tech-card {
+  background: rgba(14, 14, 18, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  border-radius: 12px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tech-card:hover {
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
+/* Tactile Button */
+.btn-tactile {
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-tactile:hover {
+  transform: translateY(-1px);
+}
+
+.btn-tactile:active {
+  transform: translateY(0);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #070709;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272A;
+  border-radius: 3px;
+}
+
+
+::-webkit-scrollbar-thumb:hover {
+  background: #A855F7;
+}
+
+/* Radial gradient background helper */
+.bg-radial-gradient {
+  background: radial-gradient(circle, var(--tw-gradient-from), var(--tw-gradient-via, transparent), var(--tw-gradient-to, transparent));
+}
+
+/* Fade-in animation */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Subtle border utilities */
+.border-white\/6 { border-color: rgba(255, 255, 255, 0.06); }
+.border-white\/8 { border-color: rgba(255, 255, 255, 0.08); }
+.border-white\/15 { border-color: rgba(255, 255, 255, 0.15); }
+

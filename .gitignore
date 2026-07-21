@@ -21,9 +21,17 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+
 # Editor & OS files
 .DS_Store
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# Next.js & Build Caches
+.next/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+
