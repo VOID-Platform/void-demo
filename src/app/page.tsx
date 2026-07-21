@@ -1,20 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { IntroHook } from '@/components/IntroHook';
-import { DiagnosisStage } from '@/components/DiagnosisStage';
+import React from 'react';
+import { KeynotePresentation } from '@/components/KeynotePresentation';
 
 export default function Home() {
-  const [showIntro, setShowIntro] = useState(true);
-
-  return (
-    <>
-      {showIntro && (
-        <IntroHook onComplete={() => setShowIntro(false)} />
-      )}
-      {!showIntro && (
-        <DiagnosisStage />
-      )}
-    </>
-  );
+  return <KeynotePresentation />;
 }

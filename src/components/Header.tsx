@@ -1,120 +1,90 @@
 'use client';
 
 import React from 'react';
-import { Play, Loader2, Presentation } from 'lucide-react';
+import { Play, Loader2, Presentation, Zap } from 'lucide-react';
 import { VoidLogo } from '@/components/VoidLogo';
 
 interface HeaderProps {
   onRunAll: () => void;
+  onJumpToDemo?: () => void;
   onOpenWalkthrough?: () => void;
-  onReplayIntro?: () => void;
   isExecuting: boolean;
   activeCount: number;
 }
 
-const StatusDot: React.FC<{ color: 'green' | 'amber' | 'purple' | 'zinc'; pulse?: boolean }> = ({ color, pulse }) => {
-  const colors = {
-    green:  'bg-emerald-400',
-    amber:  'bg-amber-400',
-    purple: 'bg-[#A855F7]',
-    zinc:   'bg-zinc-500',
-  };
-  return (
-    <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${colors[color]} ${pulse ? 'animate-pulse' : ''}`} />
-  );
-};
-
-interface ContextItemProps {
-  label: string;
-  dotColor?: 'green' | 'amber' | 'purple' | 'zinc';
-  pulseDot?: boolean;
-}
-
-const ContextItem: React.FC<ContextItemProps> = ({ label, dotColor, pulseDot }) => (
-  <div className="flex items-center gap-1.5">
-    {dotColor && <StatusDot color={dotColor} pulse={pulseDot} />}
-    <span className="text-[11px] font-sans text-zinc-400 tracking-tight">{label}</span>
-  </div>
-);
-
-const Divider = () => (
-  <span className="w-px h-3 bg-white/10 flex-shrink-0" />
-);
-
 export const Header: React.FC<HeaderProps> = ({
   onRunAll,
+  onJumpToDemo,
   onOpenWalkthrough,
   isExecuting,
   activeCount,
 }) => {
   return (
-    <header className="border-b border-white/[0.06] bg-[#030307]/[0.98] backdrop-blur-xl sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-10 h-14 flex items-center justify-between gap-6">
-
-        {/* ── LEFT: Brand identity ── */}
-        <div className="flex items-center gap-4 flex-shrink-0">
-          <VoidLogo size={24} glow={false} />
-
-          <div className="flex flex-col leading-none">
-            <span className="text-[13px] font-bold font-sans text-white tracking-[-0.02em]">VOID</span>
-          </div>
-
-          {/* Vertical rule */}
-          <span className="hidden lg:block w-px h-6 bg-white/[0.08] flex-shrink-0 mx-1" />
-
-          {/* System context — hidden on screens smaller than large desktop */}
-          <div className="hidden lg:flex items-center gap-3">
-            <ContextItem label="OTLP Telemetry Connected" dotColor="green" pulseDot />
-            <Divider />
-            <ContextItem label="10 Demo Traces" dotColor="purple" />
-            <Divider />
-            <ContextItem label="Incident Intelligence" dotColor="amber" />
-            <Divider />
-            <ContextItem label="Ready for Analysis" dotColor="zinc" />
+    <header className="fixed top-0 left-0 right-0 z-40 w-full border-b border-white/[0.06] bg-[#050508]/80 backdrop-blur-2xl">
+      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+        {/* Brand Identity */}
+        <div className="flex items-center gap-3">
+          <VoidLogo size={24} glow={true} />
+          <div className="flex items-center gap-2">
+            <span className="text-base font-bold tracking-tight text-white font-sans">VOID</span>
+            <span className="hidden sm:inline-block text-[10px] font-mono text-zinc-400 uppercase px-2.5 py-0.5 rounded-full bg-white/[0.03] border border-white/[0.06]">
+              OTEL AI Intelligence
+            </span>
           </div>
         </div>
 
-        {/* ── RIGHT: Primary CTA & Optional Walkthrough ── */}
-        <div className="flex items-center gap-3">
-          {onOpenWalkthrough && (
+        {/* Actions Header */}
+        <div className="flex items-center gap-2.5">
+          {/* Direct Jump to Live Demo Button (The Demo is the Hero) */}
+          {onJumpToDemo && (
             <button
-              onClick={onOpenWalkthrough}
-              title="Open Demo Walkthrough Pitch Guide"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[11px] font-sans text-zinc-400 border border-white/[0.08] bg-[#09090D] hover:text-white hover:border-white/20 transition-all flex-shrink-0"
+              onClick={onJumpToDemo}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.1] transition-all btn-tactile"
             >
-              <Presentation className="w-3.5 h-3.5 text-[#C084FC]" />
-              <span className="hidden sm:inline">Pitch Guide</span>
+              <Zap className="w-3.5 h-3.5 text-[#a78bfa]" />
+              <span>Live Demo</span>
             </button>
           )}
 
+          {onOpenWalkthrough && (
+            <button
+              onClick={onOpenWalkthrough}
+              className="hidden md:flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium text-zinc-300 hover:text-white border border-white/[0.08] hover:border-white/[0.16] bg-white/[0.02] transition-all btn-tactile"
+            >
+              <Presentation className="w-3.5 h-3.5 text-[#a78bfa]" />
+              <span>Pitch Guide</span>
+            </button>
+          )}
+
+          {/* Run All 10 Traces Button */}
           <button
             onClick={onRunAll}
             disabled={isExecuting}
             className={`
-              flex items-center gap-2 px-4 py-2 rounded-lg text-[12px] font-semibold font-sans
-              transition-all duration-200 flex-shrink-0
+              flex items-center gap-2 pl-4 pr-2 py-1.5 rounded-full text-xs font-semibold
+              transition-all duration-300 btn-tactile
               ${isExecuting
-                ? 'bg-zinc-800/80 text-zinc-500 cursor-not-allowed border border-white/[0.06]'
-                : 'bg-white text-[#0A0A0F] hover:bg-zinc-100 shadow-sm shadow-black/30'
+                ? 'bg-white/5 text-zinc-500 cursor-not-allowed border border-white/[0.06]'
+                : 'bg-[#8b5cf6] text-white hover:bg-[#7c3aed] shadow-lg shadow-[#8b5cf6]/25'
               }
             `}
           >
-            {isExecuting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
-                <span>
-                  {activeCount > 0 ? `Analyzing ${activeCount} traces…` : 'Analyzing…'}
-                </span>
-              </>
-            ) : (
-              <>
-                <Play className="w-3 h-3 fill-current" />
-                <span>Begin Investigation</span>
-              </>
-            )}
+            <span>
+              {isExecuting
+                ? activeCount > 0
+                  ? `Analyzing ${activeCount}…`
+                  : 'Analyzing…'
+                : 'Run All Traces'}
+            </span>
+            <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
+              {isExecuting ? (
+                <Loader2 className="w-3 h-3 animate-spin text-white" />
+              ) : (
+                <Play className="w-2.5 h-2.5 fill-current ml-0.5" />
+              )}
+            </div>
           </button>
         </div>
-
       </div>
     </header>
   );
