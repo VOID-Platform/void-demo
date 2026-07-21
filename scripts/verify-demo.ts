@@ -87,8 +87,9 @@ async function runVerificationSuite() {
         console.error(`❌ Report severity mismatch for trace #${t.index}: report=${r.severity}, trace=${t.status}`);
         validReports = false;
       }
-      if ((t.index === 4 || t.index === 8) && r.analysisCategory !== 'semantic') {
-        console.error(`❌ Expected semantic category for trace #${t.index}, got ${r.analysisCategory}`);
+      const expectedCategory = (t.index === 4 || t.index === 8) ? 'semantic' : 'deterministic';
+      if (r.analysisCategory !== expectedCategory) {
+        console.error(`❌ Expected ${expectedCategory} category for trace #${t.index}, got ${r.analysisCategory}`);
         validReports = false;
       }
     }

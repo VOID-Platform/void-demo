@@ -17,10 +17,11 @@ import {
 import { VoidLogo } from '@/components/VoidLogo';
 import { ExecutionTrace, IncidentReport } from '@/lib/types';
 import { Header } from '@/components/Header';
+import { WalkthroughModal } from '@/components/WalkthroughModal';
 import { IncidentIntelligence } from '@/components/IncidentIntelligence';
 
 /* ─────────────────────────────────────────────────────────────────
-   SCENARIO DEFINITIONS
+   SCENARIOS & TYPES
    ───────────────────────────────────────────────────────────────── */
 const SCENARIOS = [
   {
@@ -408,18 +409,23 @@ export const DiagnosisStage: React.FC = () => {
 
   const scenario = SCENARIOS[activeIdx];
   const isRunning = phase === 'running-agent' || phase === 'analyzing';
+  const [isExecutingAll, setIsExecutingAll] = useState(false);
+  const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
+  const [activeCount, setActiveCount] = useState(0);
+
+  const isBusy = isRunning || isExecutingAll;
 
   const handleSelectScenario = useCallback((idx: number) => {
-    if (isRunning) return;
+    if (isBusy) return;
     setActiveIdx(idx);
     setPhase('idle');
     setActiveStepIndex(-1);
     setTrace(null);
     setReport(null);
-  }, [isRunning]);
+  }, [isBusy]);
 
   const handleRun = useCallback(async () => {
-    if (isRunning) return;
+    if (isBusy) return;
     setPhase('running-agent');
     setActiveStepIndex(0);
     setTrace(null);
@@ -451,37 +457,64 @@ export const DiagnosisStage: React.FC = () => {
     } catch {
       setPhase('idle');
     }
-  }, [isRunning, scenario]);
-
-  const [isExecutingAll, setIsExecutingAll] = useState(false);
-  const [activeCount, setActiveCount] = useState(0);
+  }, [isBusy, scenario]);
 
   const handleRunAll = useCallback(async () => {
-    if (isRunning || isExecutingAll) return;
+    if (isBusy) return;
     setIsExecutingAll(true);
     setActiveCount(10);
+    setPhase('analyzing');
+    setTrace(null);
+    setReport(null);
+
     try {
       const res = await fetch('/api/agent/run-all', { method: 'POST' });
       const data = await res.json();
       if (data.success && data.traces && data.traces.length > 0) {
-        setTrace(data.traces[0]);
-        setReport(data.reports[0]);
+        const currentScenarioIndex = SCENARIOS[activeIdx].index;
+        let targetIdx = data.traces.findIndex((t: ExecutionTrace) => t.index === currentScenarioIndex);
+        if (targetIdx === -1) {
+          targetIdx = 0;
+        }
+
+        const matchedScenarioIdx = SCENARIOS.findIndex((s) => s.index === data.traces[targetIdx].index);
+        if (matchedScenarioIdx !== -1) {
+          setActiveIdx(matchedScenarioIdx);
+          setActiveStepIndex(SCENARIOS[matchedScenarioIdx].agentSteps.length - 1);
+        }
+
+        setTrace(data.traces[targetIdx]);
+        setReport(data.reports[targetIdx]);
         setPhase('complete');
+      } else {
+        setPhase('idle');
       }
     } catch {
-      // ignore
+      setPhase('idle');
     } finally {
       setIsExecutingAll(false);
       setActiveCount(0);
     }
-  }, [isRunning, isExecutingAll]);
+  }, [isBusy, activeIdx]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#070709] bg-subtle-grid text-white">
       <Header
         onRunAll={handleRunAll}
-        isExecuting={isExecutingAll}
+        onOpenWalkthrough={() => setIsWalkthroughOpen(true)}
+        isExecuting={isBusy}
         activeCount={activeCount}
+      />
+
+      <WalkthroughModal
+        isOpen={isWalkthroughOpen}
+        onClose={() => setIsWalkthroughOpen(false)}
+        onSelectTraceIndex={(index) => {
+          const matchIdx = SCENARIOS.findIndex((s) => s.index === index);
+          if (matchIdx !== -1) {
+            handleSelectScenario(matchIdx);
+          }
+        }}
       />
 
       {/* Ambient glow */}
@@ -497,7 +530,7 @@ export const DiagnosisStage: React.FC = () => {
             <button
               key={s.index}
               onClick={() => handleSelectScenario(idx)}
-              disabled={isRunning}
+              disabled={isBusy}
               className={`px-4 py-2 rounded-full border text-xs font-sans font-semibold transition-all btn-tactile disabled:opacity-40 disabled:cursor-not-allowed ${
                 activeIdx === idx ? pillActive[s.color] : pillIdle[s.color]
               }`}
@@ -523,9 +556,9 @@ export const DiagnosisStage: React.FC = () => {
 
             <motion.button
               onClick={handleRun}
-              disabled={isRunning}
-              whileHover={{ scale: isRunning ? 1 : 1.02 }}
-              whileTap={{ scale: isRunning ? 1 : 0.98 }}
+              disabled={isBusy}
+              whileHover={{ scale: isBusy ? 1 : 1.02 }}
+              whileTap={{ scale: isBusy ? 1 : 0.98 }}
               className={`flex items-center justify-center gap-2.5 px-5 py-2.5 rounded-lg text-sm font-bold font-sans text-white transition-all shadow-lg ${
                 isRunning
                   ? 'bg-zinc-800 cursor-not-allowed'

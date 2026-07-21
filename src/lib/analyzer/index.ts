@@ -117,13 +117,32 @@ export class DemoIncidentAnalyzer implements IncidentAnalyzer {
       (trace.prompt.toLowerCase().includes('weather') && trace.toolCalls.length === 0) ||
       trace.index === 4;
 
+    const requestedAction = trace.attributes['requested.action'] as string | undefined;
     const isWrongTool =
-      trace.attributes['requested.action'] === 'github.createIssue' ||
-      (trace.prompt.toLowerCase().includes('issue') && trace.toolCalls.includes('slack.sendMessage')) ||
-      trace.index === 8;
+      trace.attributes['incident.type'] === 'wrong_tool' ||
+      trace.index === 8 ||
+      (requestedAction ? !trace.toolCalls.includes(requestedAction) : false) ||
+      (trace.prompt.toLowerCase().includes('issue') && trace.toolCalls.includes('slack.sendMessage') && !trace.toolCalls.includes('github.createIssue'));
 
     if (trace.flaggedForSemantic || isHallucination || isWrongTool) {
       if (isHallucination) {
+        const isWeatherQuery = trace.prompt.toLowerCase().includes('weather') || trace.index === 4;
+        const toolAuditText = isWeatherQuery
+          ? 'Telemetry audit confirms 0 weather tools were executed'
+          : `Telemetry audit confirms 0 tools were executed for query requiring factual lookup (total tools executed: ${trace.toolCalls.length})`;
+
+        const timeline = isWeatherQuery
+          ? [
+              '10:08:12.010 - User query parsed by NovaFlow Copilot',
+              '10:08:12.045 - Reasoning step bypassed weather API tool lookup',
+              '10:08:12.285 - Synthetic response emitted without factual grounding span',
+            ]
+          : [
+              `User query parsed: "${trace.prompt.slice(0, 45)}..."`,
+              'Reasoning step bypassed required tool lookup',
+              'Response emitted without factual grounding span',
+            ];
+
         return {
           incident: 'Ungrounded Response / Hallucination',
           severity: 'warning',
@@ -131,14 +150,10 @@ export class DemoIncidentAnalyzer implements IncidentAnalyzer {
           evidence: [
             `User Prompt: "${trace.prompt}"`,
             `Agent Output: "${trace.response}"`,
-            'Telemetry audit confirms 0 weather tools were executed',
+            toolAuditText,
             'Response contains factual claims not backed by tool execution traces',
           ],
-          timeline: [
-            '10:08:12.010 - User query parsed by NovaFlow Copilot',
-            '10:08:12.045 - Reasoning step bypassed weather API tool lookup',
-            '10:08:12.285 - Synthetic response emitted without factual grounding span',
-          ],
+          timeline,
           recommendation: 'Enforce tool execution policy for domain-specific queries or add grounding check prior to response emission.',
           analysisCategory: 'semantic',
           samplingInfo: DemoIncidentAnalyzer.SAMPLING_INFO_COPY,
@@ -152,21 +167,38 @@ export class DemoIncidentAnalyzer implements IncidentAnalyzer {
       }
 
       if (isWrongTool) {
+        const expectedTool = requestedAction || 'github.createIssue';
+        const executedToolsStr = trace.toolCalls.length > 0 ? trace.toolCalls.join(', ') : 'none';
+        const isSlackMismatch = trace.index === 8 || trace.toolCalls.includes('slack.sendMessage');
+
+        const evidence = [
+          `User requested: "${trace.prompt}" (Expected: ${expectedTool})`,
+          `Agent executed: ${executedToolsStr}`,
+          isSlackMismatch
+            ? 'Action mismatch: User explicitly requested issue creation on GitHub, but agent posted to Slack channel #dev-general instead'
+            : `Action mismatch: User requested ${expectedTool}, but agent executed ${executedToolsStr} instead`,
+        ];
+
+        const timeline = isSlackMismatch
+          ? [
+              '10:21:40.010 - User prompt requested GitHub issue creation for payment bug',
+              '10:21:40.050 - Tool selection node misclassified intent as Slack notification',
+              '10:21:40.075 - slack.sendMessage executed with payment bug description',
+              '10:21:40.220 - Agent reported success despite wrong tool execution',
+            ]
+          : [
+              `User prompt parsed: "${trace.prompt.slice(0, 45)}..."`,
+              `Tool selection node misclassified intent (expected ${expectedTool})`,
+              `Executed tool: ${executedToolsStr}`,
+              'Agent reported execution finish despite action mismatch',
+            ];
+
         return {
           incident: 'Wrong Tool Selection / Action Mismatch',
           severity: 'critical',
           confidence: 98,
-          evidence: [
-            `User requested: "${trace.prompt}" (Expected: github.createIssue)`,
-            `Agent executed: ${trace.toolCalls.join(', ')} (slack.sendMessage)`,
-            'Action mismatch: User explicitly requested issue creation on GitHub, but agent posted to Slack channel #dev-general instead',
-          ],
-          timeline: [
-            '10:21:40.010 - User prompt requested GitHub issue creation for payment bug',
-            '10:21:40.050 - Tool selection node misclassified intent as Slack notification',
-            '10:21:40.075 - slack.sendMessage executed with payment bug description',
-            '10:21:40.220 - Agent reported success despite wrong tool execution',
-          ],
+          evidence,
+          timeline,
           recommendation: 'Refine tool definitions, improve few-shot tool selection examples, and block destructive mismatches.',
           analysisCategory: 'semantic',
           samplingInfo: DemoIncidentAnalyzer.SAMPLING_INFO_COPY,

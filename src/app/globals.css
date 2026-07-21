@@ -46,8 +46,7 @@
 }
 
 /* Logo Radial Ambient Glow */
-.bg-ambient-glow,
-.bg-\[\#DF00FF\]-glow {
+.bg-ambient-glow {
   position: absolute;
   top: 0;
   left: 50%;

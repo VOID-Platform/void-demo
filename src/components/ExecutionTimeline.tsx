@@ -81,7 +81,16 @@ export const ExecutionTimeline: React.FC<ExecutionTimelineProps> = ({ trace }) =
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {reasoningSteps.map((step, idx) => {
             const isSelected = activeStep === idx;
-            const isStepError = isFailed && (idx === 3 || trace.steps[idx]?.status === 'error');
+            const isStepError =
+              idx === 3
+                ? isFailed || trace.steps.some((s) => s.status === 'error')
+                : idx === 0
+                ? trace.steps.some((s) => s.kind === 'PLANNING' && s.status === 'error')
+                : idx === 1
+                ? trace.steps.some((s) => s.kind === 'REASONING' && s.status === 'error')
+                : idx === 2
+                ? trace.steps.some((s) => (s.kind === 'TOOL_SELECTION' || s.kind === 'TOOL_EXECUTION') && s.status === 'error')
+                : false;
 
             return (
               <div

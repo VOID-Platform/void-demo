@@ -24,12 +24,16 @@ export async function POST() {
       }
     }
 
-    return NextResponse.json({
-      success: traces.length > 0,
-      traces,
-      reports,
-      ...(errors.length > 0 ? { errors } : {}),
-    });
+    const isSuccess = traces.length > 0;
+    return NextResponse.json(
+      {
+        success: isSuccess,
+        traces,
+        reports,
+        ...(errors.length > 0 ? { errors } : {}),
+      },
+      { status: isSuccess ? 200 : 500 }
+    );
   } catch (error) {
     return NextResponse.json(
       {

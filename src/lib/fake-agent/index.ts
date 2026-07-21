@@ -15,6 +15,7 @@ async function ensureSdkInitialized() {
           },
         });
       } catch (e) {
+        initPromise = null;
         console.warn('VOID SDK init note:', e);
       }
     })();
