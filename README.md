@@ -1,53 +1,103 @@
-# SigNoz Self-Hosted Demo (`void-demo`)
+# VOID — AI Observability & Incident Intelligence
 
-This repository demonstrates how to self-host **SigNoz** and emit OpenTelemetry-native traces using `@void-hq/sdk`.
+> **Interactive Product Demo + Pitch Deck** built with Next.js 15, Framer Motion, Tailwind CSS, and OpenTelemetry.
 
 ---
 
-## ⚡ Quickstart (One Command)
+## 📸 Screen Showcase
 
-Everything (SigNoz self-hosted infrastructure, health readiness check, and the AI Agent telemetry demo script) can be started with a **single command**:
+### Slide 01 — Hero
+![VOID Hero Slide](./public/screenshots/slide-01-hero.png)
 
+### Slide 02 — AI Agents Entering Production
+![AI Agents in Production](./public/screenshots/slide-02-production.png)
+
+### Slide 03 — The Observability Blindspot
+![Traditional APM vs VOID Telemetry](./public/screenshots/slide-03-problem.png)
+
+### Slide 04 — Resolution
+![VOID Resolution Slide](./public/screenshots/slide-04-resolution.png)
+
+### Live Interactive Demo — Scenario Sandbox
+![Live Demo Sandbox](./public/screenshots/demo-shell.png)
+
+### Real-Time Incident Intelligence & Forensic Reconstruction
+![Incident Investigation Analysis](./public/screenshots/demo-investigation.png)
+
+---
+
+## 🚀 Key Features
+
+- **Keynote Presentation Deck (Slides 01 – 04)**:
+  - Viewport-filling horizontal slide-snap architecture.
+  - Staggered word-by-word reveals, OLED dark theme (`#050508`), and keyframe-driven ambient glow.
+  - Pure typographic statistical highlights (`47M+` agent calls/day, `3.2B` daily tokens).
+  - Editorial side-by-side comparison contrasting standard APM (opaque HTTP 200 OK) with VOID's trace reconstruction.
+
+- **Seamless Product Transition (Slide 04 → Demo Mode)**:
+  - Viewport transformation into a live interactive product sandbox.
+  - Floating, non-intrusive navigation controls ("Back to Deck" pill & "Skip to Live Demo" action).
+
+- **Live Incident Reconstruction Engine**:
+  - **4 Failure Scenarios**: *Recursive API Loop*, *Silent Hallucination*, *Wrong Tool Action*, and *Execution Crash*.
+  - **Horizontal 2-Column Split**:
+    - **Left Column**: Real-time OpenTelemetry span stream with animated status nodes.
+    - **Right Column**: Live incident intelligence panel featuring an animated confidence meter, character-by-character forensic evidence, actionable recommendations, and an expandable OpenTelemetry span inspector.
+
+- **Architecture Evolution Toggle**:
+  - Interactive switcher comparing **Today's Deterministic Analyzer** with **Tomorrow's Autonomous VOID Server**.
+
+---
+
+## ⚡ Quickstart
+
+### 1. Launch Next.js Web App
+```bash
+npm run dev
+```
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### 2. Start Self-Hosted Telemetry (SigNoz)
 ```bash
 npm start
 ```
-
-### What `npm start` does:
-1. Provisions/starts self-hosted SigNoz containers via `foundryctl` (SigNoz Foundry).
-2. Waits for the OTLP Collector endpoint (`http://localhost:4318/v1/traces`) to become healthy.
-3. Executes `src/demo.ts` using `@void-hq/sdk` to simulate AI Agent loops, tool calls, and LLM reasoning steps emitting live telemetry.
-
----
-
-## 📊 Accessing SigNoz UI
-
-Once running, open your web browser to view your traces:
-
-- **SigNoz Dashboard**: [http://localhost:3301](http://localhost:3301) (or `http://localhost:8080`)
+- **SigNoz Dashboard**: [http://localhost:3301](http://localhost:3301)
 - **OTLP Traces Endpoint**: `http://localhost:4318/v1/traces`
 
 ---
 
-## 🛠️ Individual Commands
+## 🛠️ CLI Commands
 
-- **Start SigNoz & Run Demo**: `npm start`
-- **Start SigNoz Only**: `npm run signoz:up`
-- **Run Telemetry Demo Only**: `npm run demo`
-- **Stop SigNoz Containers**: `npm run signoz:down`
+| Command | Description |
+| :--- | :--- |
+| `npm run dev` | Starts Next.js development server on port 3000 |
+| `npm run build` | Builds production Next.js application |
+| `npm start` | Launches self-hosted SigNoz & executes telemetry simulator |
+| `npm run demo` | Runs simulated AI agent failure traces using `@void-hq/sdk` |
+| `npm run signoz:down` | Stops self-hosted SigNoz containers |
 
 ---
 
-## 📁 Repository Structure
+## 📁 Project Structure
 
 ```
 void-demo/
-├── casting.yaml             # SigNoz Foundry deployment manifest
-├── package.json             # Demo configuration & scripts
-├── tsconfig.json            # TypeScript configuration
+├── public/
+│   └── screenshots/         # High-res screenshots of presentation & demo mode
+├── src/
+│   ├── app/
+│   │   ├── globals.css      # Core theme tokens, glass overlays, and animations
+│   │   ├── layout.tsx       # Root layout & font configuration
+│   │   └── page.tsx         # Next.js entry point
+│   ├── components/
+│   │   ├── KeynotePresentation.tsx # Horizontal presentation deck & demo shell engine
+│   │   ├── VoidLogo.tsx     # Custom SVG VOID logo component
+│   │   └── WalkthroughModal.tsx   # Presenter walkthrough guide
+│   └── lib/
+│       └── types/           # TypeScript trace & incident interfaces
 ├── scripts/
-│   ├── setup-signoz.sh      # Installs foundryctl and casts SigNoz containers
-│   ├── stop-signoz.sh       # Stops SigNoz containers
-│   └── start-all.sh         # Unified single-command launcher
-└── src/
-    └── demo.ts              # Agent telemetry demo using @void-hq/sdk
+│   ├── capture-screenshots.js # Playwright screenshot capture script
+│   └── start-all.sh         # Unified launcher script
+├── tailwind.config.js       # Custom typography scale & spring easing tokens
+└── package.json
 ```

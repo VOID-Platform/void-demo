@@ -4,76 +4,248 @@
 
 @layer base {
   :root {
-    --bg-main: #070709;
-    --bg-surface: #0E0E12;
-    --bg-elevated: #14141A;
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-purple: rgba(168, 85, 247, 0.3);
-    --accent-violet: #DF00FF;
-    --accent-purple: #A855F7;
-    --text-primary: #FFFFFF;
-    --text-secondary: #A1A1AA;
-    --text-muted: #71717A;
+    --bg-void: #050508;
+    --bg-surface: #0a0a0f;
+    --bg-elevated: #111118;
+    --border-subtle: rgba(255, 255, 255, 0.055);
+    --border-hover: rgba(255, 255, 255, 0.11);
+    --accent-violet: #8b5cf6;
+    --accent-violet-soft: #a78bfa;
+    --accent-glow: #7c3aed;
+    --text-primary: #f4f4f5;
+    --text-secondary: #a1a1aa;
+    --text-muted: #52525b;
+    --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  html, body {
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    overscroll-behavior: none;
   }
 
   body {
-    background-color: var(--bg-main);
+    background-color: var(--bg-void);
     color: var(--text-primary);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-    overflow-x: hidden;
-    font-size: 14px;
+    font-family: 'Geist', system-ui, -apple-system, sans-serif;
+    font-size: 15px;
     line-height: 1.6;
-    letter-spacing: -0.015em;
+    letter-spacing: -0.01em;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   code, pre, .font-mono {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-family: 'Geist Mono', ui-monospace, monospace;
   }
 
   button, a {
     cursor: pointer;
   }
+
+  ::selection {
+    background: rgba(139, 92, 246, 0.3);
+    color: white;
+  }
 }
 
-/* Technical Precision Grid Background */
-.bg-tech-grid,
-.bg-subtle-grid {
-  background-size: 40px 40px;
-  background-image: 
-    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+/* ─── Presentation Root Container ─── */
+/* Wraps everything. Locks viewport. */
+.presentation-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #050508;
 }
 
-/* Logo Radial Ambient Glow */
-.bg-ambient-glow {
-  position: absolute;
-  top: 0;
+/* ─── Slide Track (Horizontal) ─── */
+/* Inner track that slides horizontally via Framer Motion `x` */
+.slide-track {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  height: 100dvh;
+  will-change: transform;
+}
+
+/* ─── Individual Slide ─── */
+.keynote-slide {
+  flex-shrink: 0;
+  width: 100vw;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  padding: 3rem 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .keynote-slide {
+    padding: 5rem 3rem;
+  }
+}
+
+/* ─── Slide 01 — VOID Hero ─── */
+.slide-01-ambient {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 40%, rgba(109, 40, 217, 0.12) 0%, transparent 65%),
+    radial-gradient(ellipse 40% 30% at 50% 50%, rgba(139, 92, 246, 0.07) 0%, transparent 60%),
+    #050508;
+}
+
+/* ─── Slide 02 — Production ─── */
+.slide-02-ambient {
+  background:
+    radial-gradient(ellipse 70% 50% at 25% 50%, rgba(109, 40, 217, 0.08) 0%, transparent 65%),
+    radial-gradient(ellipse 40% 40% at 80% 20%, rgba(139, 92, 246, 0.04) 0%, transparent 55%),
+    #050508;
+}
+
+/* ─── Slide 03 — Problem ─── */
+.slide-03-ambient {
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 30%, rgba(239, 68, 68, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 50% 70%, rgba(109, 40, 217, 0.05) 0%, transparent 60%),
+    #050508;
+}
+
+/* ─── Slide 04 — Resolution ─── */
+.slide-04-ambient {
+  background:
+    radial-gradient(ellipse 90% 70% at 50% 50%, rgba(109, 40, 217, 0.1) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 40% at 50% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 55%),
+    #050508;
+}
+
+/* ─── Demo Mode Shell ─── */
+.demo-shell {
+  position: fixed;
+  inset: 0;
+  background: #060609;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+/* ─── Premium Grain Overlay ─── */
+/* Fixed to viewport, pointer-events-none — never on scrolling containers */
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+}
+
+/* ─── Navigation Dots ─── */
+.nav-dots {
+  position: fixed;
+  bottom: 2rem;
   left: 50%;
   transform: translateX(-50%);
-  width: 100%;
-  max-width: 1200px;
-  height: 600px;
-  pointer-events: none;
-  background: radial-gradient(circle at 50% 0%, rgba(168, 85, 247, 0.15) 0%, rgba(223, 0, 255, 0.03) 60%, transparent 80%);
-}
-
-/* Technical Card Shell */
-.tech-card {
-  background: rgba(14, 14, 18, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 60;
+  padding: 8px 14px;
+  background: rgba(10, 10, 15, 0.6);
   backdrop-filter: blur(12px);
-  border-radius: 12px;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 100px;
 }
 
-.tech-card:hover {
-  border-color: rgba(168, 85, 247, 0.4);
+.nav-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 100px;
+  background: rgba(255, 255, 255, 0.18);
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
-/* Tactile Button */
+.nav-dot.active {
+  width: 20px;
+  background: #8b5cf6;
+}
+
+/* ─── Skip Button (Floating) ─── */
+.skip-pill {
+  position: fixed;
+  top: 1.75rem;
+  right: 1.75rem;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: rgba(10, 10, 15, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 100px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(244, 244, 245, 0.7);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.skip-pill:hover {
+  color: #f4f4f5;
+  border-color: rgba(139, 92, 246, 0.35);
+  background: rgba(15, 15, 22, 0.85);
+}
+
+.skip-pill:active {
+  transform: scale(0.97);
+}
+
+/* ─── Back-to-Deck Pill (Demo Mode) ─── */
+.back-pill {
+  position: fixed;
+  top: 1.75rem;
+  left: 1.75rem;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: rgba(10, 10, 15, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 100px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(244, 244, 245, 0.65);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: pointer;
+}
+
+.back-pill:hover {
+  color: #f4f4f5;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.back-pill:active {
+  transform: scale(0.97);
+}
+
+/* ─── Tactile Interactions ─── */
 .btn-tactile {
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center;
 }
 
 .btn-tactile:hover {
@@ -81,46 +253,78 @@
 }
 
 .btn-tactile:active {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.97);
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+/* ─── Glass Surface ─── */
+.glass-surface {
+  background: rgba(10, 10, 15, 0.75);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 0.5px rgba(0, 0, 0, 0.3);
 }
 
-::-webkit-scrollbar-track {
-  background: #070709;
+/* ─── Double-Bezel Container ─── */
+.double-bezel {
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1.75rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-::-webkit-scrollbar-thumb {
-  background: #27272A;
-  border-radius: 3px;
+/* ─── Custom Scrollbar (Demo Mode) ─── */
+.demo-shell::-webkit-scrollbar {
+  width: 3px;
 }
 
-
-::-webkit-scrollbar-thumb:hover {
-  background: #A855F7;
+.demo-shell::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-/* Radial gradient background helper */
-.bg-radial-gradient {
-  background: radial-gradient(circle, var(--tw-gradient-from), var(--tw-gradient-via, transparent), var(--tw-gradient-to, transparent));
+.demo-shell::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
 }
 
-/* Fade-in animation */
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+.demo-shell::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.3);
 }
 
-.animate-fade-in {
-  animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+/* ─── Arrow Nav Buttons ─── */
+.slide-arrow {
+  position: fixed;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 10, 15, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Subtle border utilities */
-.border-white\/6 { border-color: rgba(255, 255, 255, 0.06); }
-.border-white\/8 { border-color: rgba(255, 255, 255, 0.08); }
-.border-white\/15 { border-color: rgba(255, 255, 255, 0.15); }
+.slide-arrow:hover {
+  color: #f4f4f5;
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(15, 15, 22, 0.8);
+}
 
+.slide-arrow:active {
+  transform: translateY(-50%) scale(0.93);
+}
+
+.slide-arrow.left { left: 1.5rem; }
+.slide-arrow.right { right: 1.5rem; }
+.slide-arrow.hidden { opacity: 0; pointer-events: none; }
