@@ -8,7 +8,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: void-hq/void-demo
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build:
@@ -26,7 +26,7 @@ jobs:
       - name: Checkout void-sdk
         uses: actions/checkout@v4
         with:
-          repository: void-hq/void-sdk
+          repository: VOID-Platform/void-sdk
           path: void-sdk
 
       - name: Log in to GHCR
