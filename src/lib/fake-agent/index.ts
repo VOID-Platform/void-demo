@@ -10,6 +10,7 @@ async function ensureSdkInitialized() {
         await voidSdk.init({
           serviceName: 'novaflow-saas-copilot',
           environment: 'production-demo',
+          serverUrl: process.env.VOID_SERVER_URL || 'http://localhost:3001',
           otlp: {
             endpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'http://localhost:4318/v1/traces',
           },

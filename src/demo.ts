@@ -8,12 +8,13 @@ async function runDemoAgent() {
   await voidSdk.init({
     serviceName: 'void-demo-agent',
     environment: 'demo-self-hosted',
+    serverUrl: process.env.VOID_SERVER_URL || 'http://localhost:3001',
     otlp: {
       endpoint: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'http://localhost:4318/v1/traces',
     },
   });
 
-  console.log('✅ SDK initialized targeting endpoint:', process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'http://localhost:4318/v1/traces');
+  console.log('✅ SDK initialized (SigNoz:', process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || 'localhost:4318', '| Server:', process.env.VOID_SERVER_URL || 'localhost:3001', ')');
   console.log('\n🤖 Starting AI Agent Execution Loop...\n');
 
   const result = await voidSdk.agent(
