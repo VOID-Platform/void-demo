@@ -51,18 +51,43 @@
 
 ## ⚡ Quickstart
 
-### 1. Launch Next.js Web App
+### Docker (Recommended)
+
+```bash
+# Build from parent directory (requires void-sdk)
+docker build -f Dockerfile -t void-demo ..
+
+# Run
+docker run -d --name void-demo -p 3000:3000 void-demo
+```
+
+Stop:
+
+```bash
+docker stop void-demo
+docker rm void-demo
+```
+
+### Local Development
+
+#### 1. Launch Next.js Web App
 ```bash
 npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 2. Start Self-Hosted Telemetry (SigNoz)
+#### 2. Start Self-Hosted Telemetry (SigNoz)
 ```bash
 npm start
 ```
 - **SigNoz Dashboard**: [http://localhost:3301](http://localhost:3301)
 - **OTLP Traces Endpoint**: `http://localhost:4318/v1/traces`
+
+#### 3. Stop
+
+```bash
+npm run signoz:down
+```
 
 ---
 
