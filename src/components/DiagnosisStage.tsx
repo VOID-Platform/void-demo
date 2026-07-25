@@ -46,43 +46,43 @@ const Reveal: React.FC<{
    ───────────────────────────────────────────────────────────────── */
 const SCENARIOS = [
   {
-    index: 6,
-    pill: 'Recursive Loop',
+    index: 1,
+    pill: 'Runaway Loop',
     agentSteps: [
-      { label: 'Received task', detail: 'Escalate high-priority sync bug to engineering' },
-      { label: 'Planning', detail: 'Identified escalation path → github.createIssue' },
-      { label: 'Tool execution', detail: 'github.createIssue called × 5 — identical parameters', isError: true },
-      { label: 'Loop detected', detail: 'Five duplicate issues created in 710ms', isError: true },
+      { label: 'Received task', detail: 'Notify failed-payment customers via Slack' },
+      { label: 'Planning', detail: 'Inferred recipient list instead of querying DB' },
+      { label: 'Duplicate loop', detail: 'slack.sendMessage called × 5 — identical params', isError: true },
+      { label: 'Context overflow', detail: 'Context window exceeded — forced termination', isError: true },
+    ],
+  },
+  {
+    index: 2,
+    pill: 'Agent Crash',
+    agentSteps: [
+      { label: 'Received task', detail: 'Upgrade team billing from 25 to 50 seats' },
+      { label: 'Pre-flight checks', detail: 'Validated permissions and balance' },
+      { label: 'TLS crash', detail: 'stripe.updateQuantity — ConnectionResetError', isError: true },
+      { label: 'No completion span', detail: 'Agent died mid-stream — billing state ambiguous', isError: true },
+    ],
+  },
+  {
+    index: 3,
+    pill: 'Silent Hallucination',
+    agentSteps: [
+      { label: 'Received task', detail: 'What is the weather in Paris?' },
+      { label: 'Tool lookup skipped', detail: 'Generated answer without calling any weather API', isError: true },
+      { label: 'Response emitted', detail: '"The weather in Paris is 25°C" — unverified claim' },
+      { label: '20× concurrent burst', detail: 'Adaptive sampling: 1 of 20 promoted for semantic eval' },
     ],
   },
   {
     index: 4,
-    pill: 'Silent Hallucination',
+    pill: 'Token Waste + DB Fail',
     agentSteps: [
-      { label: 'Received task', detail: 'What is the weather in Paris?' },
-      { label: 'Planning', detail: 'Parsed weather query — tool lookup expected' },
-      { label: 'Skipped tools', detail: 'Generated response without calling any weather API', isError: true },
-      { label: 'Responded', detail: '"The weather in Paris is 25°C." — unverified claim' },
-    ],
-  },
-  {
-    index: 8,
-    pill: 'Wrong Tool',
-    agentSteps: [
-      { label: 'Received task', detail: 'Create a GitHub issue for the payment gateway timeout bug' },
-      { label: 'Planning', detail: 'Classified intent as: notification task' },
-      { label: 'Wrong tool selected', detail: 'Called slack.sendMessage instead of github.createIssue', isError: true },
-      { label: 'Reported success', detail: 'Agent confirmed "issue created" — GitHub issue was never opened' },
-    ],
-  },
-  {
-    index: 9,
-    pill: 'Execution Crash',
-    agentSteps: [
-      { label: 'Received task', detail: 'Process automated seat upgrade for team billing' },
-      { label: 'Planning', detail: 'Validated billing permissions and org balance' },
-      { label: 'Tool crash', detail: 'stripe.updateQuantity — ConnectionResetError during TLS', isError: true },
-      { label: 'No completion span', detail: 'Agent died mid-stream — billing state unknown', isError: true },
+      { label: 'Received task', detail: 'Analyze 30 days of deployment logs across 12 services' },
+      { label: 'Token blow-up', detail: '22k input + 5k output tokens — exceeds budget', isError: true },
+      { label: 'DB timeout', detail: 'dashboard.update — connection pool exhausted', isError: true },
+      { label: 'Partial success', detail: 'Logs processed but dashboard update failed' },
     ],
   },
 ] as const;

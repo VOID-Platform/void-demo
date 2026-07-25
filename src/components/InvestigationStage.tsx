@@ -18,6 +18,10 @@ import {
   AlertTriangle,
   ArrowRight,
   Terminal,
+  RotateCcw,
+  Trash2,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import { VoidLogo } from '@/components/VoidLogo';
 import { ExecutionTrace } from '@/lib/types';
@@ -104,19 +108,19 @@ const Reveal: React.FC<{
    ───────────────────────────────────────────────────────────────── */
 const SCENARIOS = [
   {
-    index: 6,
+    index: 1,
     pill: 'Recursive API Loop',
     severity: 'critical' as const,
-    summary: 'github.createIssue executed 5 consecutive times in 710ms',
+    summary: 'slack.sendMessage executed 5 consecutive times in 710ms',
     agentSteps: [
       { label: 'Received task', detail: 'Escalate high-priority sync bug to engineering' },
-      { label: 'Planning', detail: 'Identified escalation path → github.createIssue' },
-      { label: 'Tool execution', detail: 'github.createIssue called × 5 — identical parameters', isError: true },
-      { label: 'Loop detected', detail: 'Five duplicate issues created in 710ms', isError: true },
+      { label: 'Planning', detail: 'Identified escalation path → slack.sendMessage' },
+      { label: 'Tool execution', detail: 'slack.sendMessage called × 5 — identical parameters', isError: true },
+      { label: 'Loop detected', detail: 'Five duplicate notifications sent in 710ms', isError: true },
     ],
   },
   {
-    index: 4,
+    index: 3,
     pill: 'Silent Hallucination',
     severity: 'warning' as const,
     summary: 'Weather in Paris claimed as 25°C with ZERO tools invoked',
@@ -128,7 +132,7 @@ const SCENARIOS = [
     ],
   },
   {
-    index: 8,
+    index: 11,
     pill: 'Wrong Tool Action',
     severity: 'critical' as const,
     summary: 'User requested GitHub issue; agent executed slack.sendMessage',
@@ -140,7 +144,7 @@ const SCENARIOS = [
     ],
   },
   {
-    index: 9,
+    index: 2,
     pill: 'Execution Crash',
     severity: 'critical' as const,
     summary: 'Agent process crashed mid-stream during Stripe seat update',
@@ -327,6 +331,34 @@ export const InvestigationStage: React.FC = () => {
     : 0;
   const animatedConfidence = useCountUp(confidencePct, 1.2, phase === 'complete');
 
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+
+  const handleResetDemoState = useCallback(async () => {
+    if (isResetting || isBusy) return;
+    setIsResetting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/reset', { method: 'POST' });
+      if (res.ok) {
+        setResetDone(true);
+        setPhase('idle');
+        setTrace(null);
+        setIncidentId(null);
+        setInvestigation(null);
+        setEvidenceOpen(false);
+        setActiveStepIndex(-1);
+        setTimeout(() => setResetDone(false), 3000);
+      } else {
+        setError('Failed to reset database & queues.');
+      }
+    } catch {
+      setError('Network error resetting system state.');
+    } finally {
+      setIsResetting(false);
+    }
+  }, [isResetting, isBusy]);
+
   const handleSelectScenario = useCallback((idx: number) => {
     if (isBusy) return;
     setActiveIdx(idx);
@@ -368,6 +400,26 @@ export const InvestigationStage: React.FC = () => {
       if (!data.success) { setError(data.error ?? 'Investigation failed.'); setPhase('failed'); return; }
 
       setTrace(data.trace);
+
+      if (data.report) {
+        setInvestigation({
+          status: 'COMPLETED',
+          severity: data.report.severity === 'warning' ? 'SUSPICIOUS' : (data.report.severity?.toUpperCase() ?? 'SUSPICIOUS'),
+          confidence: (data.report.confidence ?? 85) / 100,
+          labels: ['SILENT_HALLUCINATION'],
+          evaluation: {
+            classification: data.report.incident,
+            reasoning: data.report.evidence,
+            summary: data.report.recommendation,
+          },
+          engineeringReport: {
+            executive_summary: data.report.incident,
+            suggested_fix: data.report.recommendation,
+          },
+        });
+        setPhase('complete');
+        return;
+      }
 
       if (data.isHealthy || !data.incidentId) {
         // Healthy execution — no incident to poll
@@ -535,18 +587,46 @@ export const InvestigationStage: React.FC = () => {
       <section className="py-20 md:py-28 relative" id="investigation">
         <div className="max-w-3xl mx-auto px-6 space-y-12">
 
-          {/* Section Header */}
+          {/* Section Header & Aesthetic Reset Button */}
           <Reveal>
-            <div className="text-center space-y-3">
-              <p className="text-xs font-mono text-[#a78bfa] tracking-[0.2em] uppercase">
-                Interactive Investigation
-              </p>
-              <h2 className="text-3xl md:text-5xl font-bold tracking-tight text-white">
-                Reconstruct a production incident
-              </h2>
-              <p className="text-base text-zinc-400 max-w-lg mx-auto">
-                Select an AI failure scenario below to watch VOID assemble the reasoning trace and deliver actionable root cause evidence.
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+              <div className="text-left space-y-3 max-w-xl">
+                <p className="text-xs font-mono text-[#a78bfa] tracking-[0.2em] uppercase">
+                  Interactive Investigation
+                </p>
+                <h2 className="text-3xl md:text-5xl font-bold tracking-tight text-white">
+                  Reconstruct a production incident
+                </h2>
+                <p className="text-base text-zinc-400 leading-relaxed">
+                  Select an AI failure scenario below to watch VOID assemble the reasoning trace and deliver actionable root cause evidence.
+                </p>
+              </div>
+
+              {/* Aesthetic Reset Queue & DB Button */}
+              <motion.button
+                whileHover={{ scale: 1.03, y: -1 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={handleResetDemoState}
+                disabled={isResetting || isBusy}
+                className="self-start sm:self-end flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-red-500/10 via-purple-500/10 to-blue-500/10 hover:from-red-500/20 hover:via-purple-500/20 hover:to-blue-500/20 border border-white/10 hover:border-red-500/40 text-xs font-mono font-medium text-zinc-300 hover:text-white shadow-xl shadow-red-950/20 transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed group shrink-0"
+              >
+                {isResetting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                    <span>Resetting Queue & DB…</span>
+                  </>
+                ) : resetDone ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400 animate-bounce" />
+                    <span className="text-emerald-300 font-semibold">State Cleared!</span>
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="w-3.5 h-3.5 text-red-400 group-hover:rotate-[-180deg] transition-transform duration-500" />
+                    <span>Reset Queue & DB</span>
+                  </>
+                )}
+              </motion.button>
             </div>
           </Reveal>
 
@@ -747,22 +827,7 @@ export const InvestigationStage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Actionable Recommendation */}
-                <div className="space-y-3 relative z-10">
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: T.rec / 1000 }}
-                    className="text-xs font-mono text-zinc-500 uppercase tracking-[0.15em]"
-                  >
-                    Actionable Recommendation
-                  </motion.p>
-                  <TypingLine
-                    text={backendRecommendation}
-                    delay={T.rec}
-                    className="text-base text-zinc-200 font-medium leading-relaxed"
-                  />
-                </div>
+
 
                 {/* OpenTelemetry Proof Inspector — only shown when a real trace exists */}
                 {trace && (
