@@ -1,45 +1,44 @@
 import { NextResponse } from 'next/server';
 import { runFakeExecution } from '@/lib/fake-agent';
-import { demoIncidentAnalyzer } from '@/lib/analyzer';
-import { ExecutionTrace, IncidentReport } from '@/lib/types';
+
+const SERVER_URL = process.env.VOID_SERVER_URL || 'http://localhost:3001';
 
 export async function POST() {
   try {
-    const traces: ExecutionTrace[] = [];
-    const reports: IncidentReport[] = [];
-
-    const errors: Array<{ index: number; error: string }> = [];
+    const results = [];
 
     for (let i = 1; i <= 10; i++) {
-      try {
-        const trace = await runFakeExecution(i);
-        const report = await demoIncidentAnalyzer.analyze(trace);
-        traces.push(trace);
-        reports.push(report);
-      } catch (err) {
-        errors.push({
-          index: i,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+      const trace = await runFakeExecution(i);
+      const summary = {
+        execution_id: trace.id,
+        trace_id: trace.traceId,
+        steps: trace.toolCalls.map((t) => ({ tool_name: t, success: true })),
+        total_latency_ms: trace.latencyMs,
+        total_prompt_tokens: trace.inputTokens,
+        total_completion_tokens: trace.outputTokens,
+        retry_count: 0,
+        crashed: trace.outputTokens === 0 || !!trace.error,
+        context_window_exceeded: false,
+      };
+
+      const res = await fetch(`${SERVER_URL}/api/traces`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(summary),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      results.push({
+        trace,
+        incidentId: data.incident_id ?? null,
+        isHealthy: data.status === 'healthy',
+      });
     }
 
-    const isSuccess = traces.length > 0;
-    return NextResponse.json(
-      {
-        success: isSuccess,
-        traces,
-        reports,
-        ...(errors.length > 0 ? { errors } : {}),
-      },
-      { status: isSuccess ? 200 : 500 }
-    );
+    return NextResponse.json({ success: true, results });
   } catch (error) {
     return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      },
+      { success: false, error: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
