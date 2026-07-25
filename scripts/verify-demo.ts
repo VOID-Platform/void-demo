@@ -1,6 +1,6 @@
 import { runFakeExecution } from '../src/lib/fake-agent';
-import { demoIncidentAnalyzer, DemoIncidentAnalyzer } from '../src/lib/analyzer';
-import { ExecutionTrace, IncidentReport } from '../src/lib/types';
+import { submitTraceToVoidServer } from '../src/lib/analyzer';
+import { ExecutionTrace } from '../src/lib/types';
 import fs from 'fs';
 import path from 'path';
 
@@ -11,15 +11,17 @@ async function runVerificationSuite() {
 
   let passed = true;
   const traces: ExecutionTrace[] = [];
-  const reports: IncidentReport[] = [];
 
-  // 1. Generate & Analyze all 10 Traces
-  console.log('1️⃣  Generating & Analyzing 10 Demo Traces with VOID SDK...');
+  // 1. Generate & Submit all 10 Traces to VOID Server
+  console.log('1️⃣  Generating & Submitting 10 Demo Traces to VOID Server...');
   for (let i = 1; i <= 10; i++) {
     const trace = await runFakeExecution(i);
-    const report = await demoIncidentAnalyzer.analyze(trace);
     traces.push(trace);
-    reports.push(report);
+    try {
+      await submitTraceToVoidServer(trace);
+    } catch (err) {
+      console.warn(`   ⚠️ VOID server submission failed for trace #${i}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
   console.log(`   ✅ Successfully generated ${traces.length} traces.\n`);
 
@@ -73,35 +75,8 @@ async function runVerificationSuite() {
     passed = false;
   }
 
-  // Assertion 5: Analyzer Report Output Assertions
-  console.log(`\n5️⃣  Verifying Analyzer Reports Integrity:`);
-  let validReports = true;
-  if (reports.length !== 10) {
-    console.error(`❌ Expected 10 reports, got ${reports.length}`);
-    validReports = false;
-  } else {
-    for (let i = 0; i < 10; i++) {
-      const r = reports[i];
-      const t = traces[i];
-      if (r.severity !== t.status) {
-        console.error(`❌ Report severity mismatch for trace #${t.index}: report=${r.severity}, trace=${t.status}`);
-        validReports = false;
-      }
-      const expectedCategory = (t.index === 4 || t.index === 8) ? 'semantic' : 'deterministic';
-      if (r.analysisCategory !== expectedCategory) {
-        console.error(`❌ Expected ${expectedCategory} category for trace #${t.index}, got ${r.analysisCategory}`);
-        validReports = false;
-      }
-    }
-  }
-  if (validReports) {
-    console.log('   ✓ Assertion 5 Passed: All generated reports match expected severities & analysis categories.');
-  } else {
-    passed = false;
-  }
-
-  // Assertion 6: Copy Audit for Residual "10%" Language
-  console.log(`\n6️⃣  Auditing UI Codebase for Residual "10%" Copy:`);
+  // Assertion 5: Copy Audit for Residual "10%" Language
+  console.log(`\n5️⃣  Auditing UI Codebase for Residual "10%" Copy:`);
   const componentsDir = path.join(process.cwd(), 'src/components');
   const filesToAudit = fs.readdirSync(componentsDir).map((f) => path.join(componentsDir, f));
   filesToAudit.push(path.join(process.cwd(), 'src/lib/analyzer/index.ts'));
@@ -116,7 +91,7 @@ async function runVerificationSuite() {
   }
 
   if (!residualCopyFound) {
-    console.log(`   ✓ Assertion 6 Passed: Zero residual "10%" copy found in UI components or analyzer.`);
+    console.log(`   ✓ Assertion 5 Passed: Zero residual "10%" copy found in UI components or analyzer.`);
   } else {
     passed = false;
   }

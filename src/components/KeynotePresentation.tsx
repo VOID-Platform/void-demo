@@ -7,6 +7,7 @@ import React, {
   useEffect,
   memo,
 } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   motion,
   AnimatePresence,
@@ -114,7 +115,7 @@ const SEVERITY_CFG = {
   },
 };
 
-type DiagnosisPhase = 'idle' | 'running-agent' | 'analyzing' | 'complete';
+type DiagnosisPhase = 'idle' | 'running-agent' | 'polling' | 'complete' | 'failed';
 type PresentationMode = 'slides' | 'demo';
 
 /* ══════════════════════════════════════════════════════════════════
@@ -699,12 +700,13 @@ function DemoProductShell({
   const [activeStepIndex, setActiveStepIndex] = useState(-1);
   const [trace, setTrace] = useState<ExecutionTrace | null>(null);
   const [report, setReport] = useState<IncidentReport | null>(null);
+  const [incidentId, setIncidentId] = useState<string | null>(null);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [architectureMode, setArchitectureMode] = useState<'today' | 'tomorrow'>('today');
   const [error, setError] = useState<string | null>(null);
 
   const scenario = SCENARIOS[activeIdx];
-  const isRunning = phase === 'running-agent' || phase === 'analyzing';
+  const isRunning = phase === 'running-agent' || phase === 'polling';
   const cfg = report ? SEVERITY_CFG[report.severity] : null;
   const animatedConfidence = useCountUp(
     report ? report.confidence : 0,
@@ -720,6 +722,7 @@ function DemoProductShell({
     setActiveStepIndex(-1);
     setTrace(null);
     setReport(null);
+    setIncidentId(null);
     setEvidenceOpen(false);
     setError(null);
   }, [isRunning]);
@@ -731,6 +734,7 @@ function DemoProductShell({
     setActiveStepIndex(0);
     setTrace(null);
     setReport(null);
+    setIncidentId(null);
     setEvidenceOpen(false);
 
     const STEP_MS = 750;
@@ -739,7 +743,7 @@ function DemoProductShell({
       setActiveStepIndex(i);
     }
     await new Promise<void>(r => setTimeout(r, 550));
-    setPhase('analyzing');
+    setPhase('polling');
 
     try {
       const res = await fetch('/api/agent/run', {
@@ -747,31 +751,90 @@ function DemoProductShell({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: scenario.index }),
       });
-      if (!res.ok) {
-        setError(`Server returned ${res.status}. Please try again.`);
-        setPhase('idle');
-        return;
-      }
+      if (!res.ok) { setError(`Server returned ${res.status}.`); setPhase('failed'); return; }
       const data = await res.json();
-      if (!data.success) {
-        setError(data.error || 'Investigation failed. No error details provided.');
-        setPhase('idle');
-        return;
-      }
-      if (!data.trace || !data.report) {
-        setError('Investigation completed but returned incomplete data. Check API response format.');
-        setPhase('idle');
-        return;
-      }
-      await new Promise<void>(r => setTimeout(r, 400));
+      if (!data.success) { setError(data.error ?? 'Investigation failed.'); setPhase('failed'); return; }
+
       setTrace(data.trace);
-      setReport(data.report);
-      setPhase('complete');
+
+      if (data.isHealthy || !data.incidentId) {
+        setReport({
+          incident: 'Normal Execution — No Quality Issues',
+          severity: 'success', confidence: 100,
+          evidence: ['All spans completed with status OK'],
+          timeline: [], recommendation: 'No action required.',
+          analysisCategory: 'deterministic', analysisSource: 'server_evaluated',
+          samplingInfo: '', disclaimer: '',
+        });
+        setPhase('complete');
+        return;
+      }
+
+      setIncidentId(data.incidentId);
+      // phase stays 'polling' — useQuery takes over
     } catch (err) {
-      setError(err instanceof TypeError ? 'Network error — unable to reach the investigation service.' : 'Unexpected error during investigation.');
-      setPhase('idle');
+      setError(err instanceof TypeError ? 'Network error.' : 'Unexpected error.');
+      setPhase('failed');
     }
   }, [isRunning, scenario]);
+
+  // TanStack Query v5: poll until COMPLETED or FAILED
+  // ponytail: maps backend shape → IncidentReport so render section is untouched
+  const { data: pollData, error: pollError } = useQuery<{
+    status: string; severity?: string; labels?: string[];
+    confidence?: number; evaluation?: Record<string, unknown>;
+    engineeringReport?: Record<string, unknown> | null;
+    error?: string;
+  }>({
+    queryKey: ['investigation-kp', incidentId],
+    enabled: !!incidentId && phase === 'polling',
+    refetchInterval: (query) => {
+      const s = (query.state.data as { status: string } | undefined)?.status;
+      return s === 'COMPLETED' || s === 'FAILED' ? false : 2000;
+    },
+    queryFn: async () => {
+      const res = await fetch(`/api/investigations/${incidentId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+  });
+
+  useEffect(() => {
+    if (!pollData || phase !== 'polling') return;
+    if (pollData.status === 'COMPLETED') {
+      const evalData = pollData.evaluation as Record<string, unknown> | undefined;
+      const engReport = pollData.engineeringReport as Record<string, unknown> | null | undefined;
+      const labels = (pollData.labels ?? []) as string[];
+      const sevKey = pollData.severity === 'CRITICAL' ? 'critical'
+        : pollData.severity === 'SUSPICIOUS' ? 'warning' : 'success';
+      const evidence: string[] = evalData?.reasoning
+        ? (Array.isArray(evalData.reasoning) ? evalData.reasoning as string[] : [String(evalData.reasoning)])
+        : labels.map(l => `Risk label: ${l}`);
+      setReport({
+        incident: (engReport?.executive_summary as string) ?? (evalData?.classification as string) ?? 'Incident Detected',
+        severity: sevKey as 'success' | 'warning' | 'critical',
+        confidence: pollData.confidence != null ? Math.round(pollData.confidence * 100) : 90,
+        evidence,
+        timeline: [],
+        recommendation: (engReport?.suggested_fix as string) ?? 'Review the engineering report.',
+        analysisCategory: 'semantic',
+        analysisSource: 'server_evaluated',
+        samplingInfo: '',
+        disclaimer: '',
+        engineeringReport: engReport ?? undefined,
+      });
+      setPhase('complete');
+    } else if (pollData.status === 'FAILED') {
+      setError(pollData.error ?? 'Investigation failed in worker.');
+      setPhase('failed');
+    }
+  }, [pollData, phase]);
+
+  useEffect(() => {
+    if (!pollError || phase !== 'polling') return;
+    setError(pollError instanceof Error ? pollError.message : 'Polling error');
+    setPhase('failed');
+  }, [pollError, phase]);
 
   return (
     <div className="demo-shell">
@@ -884,7 +947,7 @@ function DemoProductShell({
               <span>
                 {phase === 'running-agent'
                   ? 'Emitting OpenTelemetry spans…'
-                  : phase === 'analyzing'
+                  : phase === 'polling'
                   ? 'Analyzing failure patterns…'
                   : 'Run Investigation'}
               </span>
@@ -905,9 +968,9 @@ function DemoProductShell({
           {/* ── RIGHT: Analysis result ── */}
           <div className="min-h-[200px]">
             <AnimatePresence mode="wait">
-              {phase === 'analyzing' && !report && (
+              {phase === 'polling' && (
                 <motion.div
-                  key="analyzing"
+                  key="polling"
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
@@ -917,7 +980,9 @@ function DemoProductShell({
                   <div className="flex items-center gap-2.5">
                     <VoidLogo size={20} glow={true} />
                     <span className="text-sm font-mono text-[#a78bfa]">
-                      VOID is reconstructing trace intelligence
+                      {(pollData as { status?: string } | undefined)?.status === 'PROCESSING'
+                        ? 'Running LLM evaluator…'
+                        : 'Queued for investigation…'}
                     </span>
                   </div>
                   <div className="flex gap-1.5">

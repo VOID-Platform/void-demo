@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
   Play,
@@ -19,9 +20,28 @@ import {
   Terminal,
 } from 'lucide-react';
 import { VoidLogo } from '@/components/VoidLogo';
-import { ExecutionTrace, IncidentReport } from '@/lib/types';
+import { ExecutionTrace } from '@/lib/types';
 import { Header } from '@/components/Header';
 import { WalkthroughModal } from '@/components/WalkthroughModal';
+
+interface InvestigationResult {
+  status: 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  incidentId?: string;
+  severity?: string;
+  labels?: string[];
+  confidence?: number;
+  evaluation?: Record<string, unknown>;
+  engineeringReport?: Record<string, unknown> | null;
+  issueUrl?: string | null;
+  error?: string;
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  QUEUED: 'Queued for investigation…',
+  PROCESSING: 'Running LLM evaluator…',
+  COMPLETED: 'Report ready',
+  FAILED: 'Investigation failed',
+};
 
 /* ─────────────────────────────────────────────────────────────────
    ANIMATED COUNT UP HOOK (For Live Confidence Meter)
@@ -133,7 +153,7 @@ const SCENARIOS = [
   },
 ] as const;
 
-type DiagnosisPhase = 'idle' | 'running-agent' | 'analyzing' | 'complete';
+type DiagnosisPhase = 'idle' | 'running-agent' | 'polling' | 'complete' | 'failed';
 
 /* ─────────────────────────────────────────────────────────────────
    TYPING ANIMATED LINE
@@ -258,20 +278,54 @@ export const InvestigationStage: React.FC = () => {
   const [phase, setPhase] = useState<DiagnosisPhase>('idle');
   const [activeStepIndex, setActiveStepIndex] = useState(-1);
   const [trace, setTrace] = useState<ExecutionTrace | null>(null);
-  const [report, setReport] = useState<IncidentReport | null>(null);
-  const [isExecutingAll, setIsExecutingAll] = useState(false);
-  const [activeCount, setActiveCount] = useState(0);
+  const [incidentId, setIncidentId] = useState<string | null>(null);
+  const [investigation, setInvestigation] = useState<InvestigationResult | null>(null);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const scenario = SCENARIOS[activeIdx];
-  const isRunning = phase === 'running-agent' || phase === 'analyzing';
-  const isBusy = isRunning || isExecutingAll;
+  const isRunning = phase === 'running-agent' || phase === 'polling';
+  const isBusy = isRunning;
 
-  // Confidence count-up logic
-  const confidenceTarget = report ? report.confidence : 0;
-  const animatedConfidence = useCountUp(confidenceTarget, 1.2, phase === 'complete');
+  // TanStack Query v5: poll investigation until COMPLETED or FAILED
+  // ponytail: refetchInterval fn stops once terminal state — no onSuccess/onError in v5
+  const { data: pollData, error: pollError } = useQuery<InvestigationResult>({
+    queryKey: ['investigation', incidentId],
+    enabled: !!incidentId && phase === 'polling',
+    refetchInterval: (query) => {
+      const s = (query.state.data as InvestigationResult | undefined)?.status;
+      return s === 'COMPLETED' || s === 'FAILED' ? false : 2000;
+    },
+    queryFn: async () => {
+      const res = await fetch(`/api/investigations/${incidentId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json() as Promise<InvestigationResult>;
+    },
+  });
+
+  useEffect(() => {
+    if (!pollData || phase !== 'polling') return;
+    if (pollData.status === 'COMPLETED') {
+      setInvestigation(pollData);
+      setPhase('complete');
+    } else if (pollData.status === 'FAILED') {
+      setError(pollData.error ?? 'Investigation failed in worker.');
+      setPhase('failed');
+    }
+  }, [pollData, phase]);
+
+  useEffect(() => {
+    if (!pollError || phase !== 'polling') return;
+    setError(pollError instanceof Error ? pollError.message : 'Polling error');
+    setPhase('failed');
+  }, [pollError, phase]);
+
+  // Confidence count-up: from backend confidence (0–1 scale → pct)
+  const confidencePct = investigation?.confidence != null
+    ? Math.round(investigation.confidence * 100)
+    : 0;
+  const animatedConfidence = useCountUp(confidencePct, 1.2, phase === 'complete');
 
   const handleSelectScenario = useCallback((idx: number) => {
     if (isBusy) return;
@@ -279,7 +333,8 @@ export const InvestigationStage: React.FC = () => {
     setPhase('idle');
     setActiveStepIndex(-1);
     setTrace(null);
-    setReport(null);
+    setIncidentId(null);
+    setInvestigation(null);
     setEvidenceOpen(false);
     setError(null);
   }, [isBusy]);
@@ -290,7 +345,8 @@ export const InvestigationStage: React.FC = () => {
     setPhase('running-agent');
     setActiveStepIndex(0);
     setTrace(null);
-    setReport(null);
+    setIncidentId(null);
+    setInvestigation(null);
     setEvidenceOpen(false);
 
     const STEP_MS = 750;
@@ -299,7 +355,7 @@ export const InvestigationStage: React.FC = () => {
       setActiveStepIndex(i);
     }
     await new Promise<void>(r => setTimeout(r, 600));
-    setPhase('analyzing');
+    setPhase('polling');
 
     try {
       const res = await fetch('/api/agent/run', {
@@ -307,87 +363,64 @@ export const InvestigationStage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: scenario.index }),
       });
-      if (!res.ok) {
-        setError(`Server returned ${res.status}. Please try again.`);
-        setPhase('idle');
-        return;
-      }
+      if (!res.ok) { setError(`Server returned ${res.status}.`); setPhase('failed'); return; }
       const data = await res.json();
-      if (!data.success) {
-        setError(data.error || 'Investigation failed. No error details provided.');
-        setPhase('idle');
-        return;
-      }
-      if (!data.trace || !data.report) {
-        setError('Investigation completed but returned incomplete data. Check API response format.');
-        setPhase('idle');
-        return;
-      }
-      await new Promise<void>(r => setTimeout(r, 450));
+      if (!data.success) { setError(data.error ?? 'Investigation failed.'); setPhase('failed'); return; }
+
       setTrace(data.trace);
-      setReport(data.report);
-      setPhase('complete');
+
+      if (data.isHealthy || !data.incidentId) {
+        // Healthy execution — no incident to poll
+        setInvestigation({ status: 'COMPLETED', severity: 'HEALTHY' });
+        setPhase('complete');
+        return;
+      }
+
+      setIncidentId(data.incidentId);
+      // phase stays 'polling' — useQuery takes over
     } catch (err) {
-      setError(err instanceof TypeError ? 'Network error — unable to reach the investigation service.' : 'Unexpected error during investigation.');
-      setPhase('idle');
+      setError(err instanceof TypeError ? 'Network error.' : 'Unexpected error.');
+      setPhase('failed');
     }
   }, [isBusy, scenario]);
 
-  const handleRunAll = useCallback(async () => {
-    if (isBusy) return;
-    setError(null);
-    setIsExecutingAll(true);
-    setActiveCount(10);
-    setPhase('analyzing');
-    setTrace(null);
-    setReport(null);
+  // Derive severity badge config from backend response
+  const severityKey =
+    (investigation?.severity === 'CRITICAL' || investigation?.severity === 'SUSPICIOUS')
+      ? (investigation.severity === 'CRITICAL' ? 'critical' : 'warning')
+      : investigation?.severity === 'HEALTHY' ? 'success'
+      : investigation?.labels && investigation.labels.length > 0 ? 'warning' : 'success';
+  const cfg = phase === 'complete' ? SEVERITY[severityKey as keyof typeof SEVERITY] : null;
 
-    try {
-      const res = await fetch('/api/agent/run-all', { method: 'POST' });
-      if (!res.ok) {
-        setError(`Server returned ${res.status}. Please try again.`);
-        setPhase('idle');
-        return;
-      }
-      const data = await res.json();
-      if (!data.success || !data.traces || data.traces.length === 0) {
-        setError('Batch investigation returned no results.');
-        setPhase('idle');
-        return;
-      }
-      const currentScenarioIndex = SCENARIOS[activeIdx].index;
-      let targetIdx = data.traces.findIndex((t: ExecutionTrace) => t.index === currentScenarioIndex);
-      if (targetIdx === -1) targetIdx = 0;
+  // Derive display fields from backend evaluation JSON
+  const evalData = investigation?.evaluation as Record<string, unknown> | null | undefined;
+  const engReport = investigation?.engineeringReport as Record<string, unknown> | null | undefined;
+  const backendLabels: string[] = (investigation?.labels ?? []) as string[];
+  const backendEvidence: string[] = evalData?.reasoning
+    ? (Array.isArray(evalData.reasoning) ? evalData.reasoning as string[] : [String(evalData.reasoning)])
+    : backendLabels.map(l => `Risk label: ${l}`);
+  const backendRecommendation: string =
+    (engReport?.suggested_fix as string) ??
+    (evalData?.summary as string) ??
+    'Review the engineering report for remediation steps.';
+  const backendIncidentName: string =
+    (engReport?.executive_summary as string) ??
+    (evalData?.classification as string) ??
+    (investigation?.severity === 'HEALTHY' ? 'Normal Execution — No Quality Issues' : 'Incident Detected');
 
-      const matchedScenarioIdx = SCENARIOS.findIndex((s) => s.index === data.traces[targetIdx].index);
-      if (matchedScenarioIdx !== -1) {
-        setActiveIdx(matchedScenarioIdx);
-        setActiveStepIndex(SCENARIOS[matchedScenarioIdx].agentSteps.length - 1);
-      }
+  // ponytail: polling status label shown in shimmer block
+  const pollingLabel = STATUS_LABEL[incidentId ? (investigation?.status ?? 'QUEUED') : 'QUEUED'];
 
-      setTrace(data.traces[targetIdx]);
-      setReport(data.reports[targetIdx]);
-      setPhase('complete');
-    } catch (err) {
-      setError(err instanceof TypeError ? 'Network error — unable to reach the investigation service.' : 'Unexpected error during batch investigation.');
-      setPhase('idle');
-    } finally {
-      setIsExecutingAll(false);
-      setActiveCount(0);
-    }
-  }, [isBusy, activeIdx]);
-
-  const cfg = report ? SEVERITY[report.severity] : null;
   const T = { name: 0, ev0: 400, ev1: 1100, ev2: 1800, rec: 2600 };
 
   return (
     <div className="min-h-screen bg-[#050508] text-[#f4f4f5] flex flex-col font-sans selection:bg-[#8b5cf6]/30 selection:text-white">
       {/* Sticky Header */}
       <Header
-        onRunAll={handleRunAll}
+        onRunAll={() => {}}
         onOpenWalkthrough={() => setIsWalkthroughOpen(true)}
         isExecuting={isBusy}
-        activeCount={activeCount}
+        activeCount={0}
       />
 
       {/* 90s Presenter Pitch Script Modal */}
@@ -584,7 +617,7 @@ export const InvestigationStage: React.FC = () => {
               <span>
                 {phase === 'running-agent'
                   ? 'Emitting OpenTelemetry Spans…'
-                  : phase === 'analyzing'
+                  : phase === 'polling'
                   ? 'Analyzing Failure Patterns…'
                   : 'Run Investigation'}
               </span>
@@ -606,9 +639,9 @@ export const InvestigationStage: React.FC = () => {
 
           {/* VOID Incident Intelligence Analysis Output */}
           <AnimatePresence mode="wait">
-            {phase === 'analyzing' && !report && (
+            {phase === 'polling' && (
               <motion.div
-                key="analyzing"
+                key="polling"
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -8 }}
@@ -617,7 +650,7 @@ export const InvestigationStage: React.FC = () => {
               >
                 <div className="flex items-center gap-2.5">
                   <VoidLogo size={22} glow={true} />
-                  <span className="text-sm font-mono text-[#a78bfa]">VOID is reconstructing trace intelligence</span>
+                  <span className="text-sm font-mono text-[#a78bfa]">{pollingLabel}</span>
                 </div>
                 <div className="flex gap-1.5">
                   {[0, 1, 2].map(i => (
@@ -656,9 +689,9 @@ export const InvestigationStage: React.FC = () => {
               </motion.div>
             )}
 
-            {phase === 'complete' && report && trace && cfg && (
+            {phase === 'complete' && investigation && cfg && (
               <motion.div
-                key={`${trace.id}-complete`}
+                key="complete"
                 initial={{ opacity: 0, y: 28 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.85, ease: [0.16, 1, 0.3, 1] }}
@@ -685,7 +718,7 @@ export const InvestigationStage: React.FC = () => {
                   </div>
 
                   <TypingLine
-                    text={report.incident}
+                    text={backendIncidentName}
                     delay={T.name}
                     className="text-2xl md:text-3xl font-bold text-white leading-tight tracking-tight"
                   />
@@ -703,7 +736,7 @@ export const InvestigationStage: React.FC = () => {
                   </motion.p>
 
                   <div className="space-y-3 pl-4 border-l border-[#8b5cf6]/30">
-                    {report.evidence.slice(0, 3).map((ev, idx) => (
+                    {backendEvidence.slice(0, 3).map((ev: string, idx: number) => (
                       <TypingLine
                         key={idx}
                         text={ev}
@@ -725,13 +758,14 @@ export const InvestigationStage: React.FC = () => {
                     Actionable Recommendation
                   </motion.p>
                   <TypingLine
-                    text={report.recommendation}
+                    text={backendRecommendation}
                     delay={T.rec}
                     className="text-base text-zinc-200 font-medium leading-relaxed"
                   />
                 </div>
 
-                {/* OpenTelemetry Proof Inspector */}
+                {/* OpenTelemetry Proof Inspector — only shown when a real trace exists */}
+                {trace && (
                 <motion.div
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -802,6 +836,7 @@ export const InvestigationStage: React.FC = () => {
                     )}
                   </AnimatePresence>
                 </motion.div>
+                )}
               </motion.div>
             )}
           </AnimatePresence>

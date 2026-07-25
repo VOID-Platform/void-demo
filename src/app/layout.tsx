@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -31,7 +32,7 @@ export default function RootLayout({
         className="bg-[#050508] text-[#f4f4f5] font-sans antialiased"
         style={{ overflow: 'hidden', height: '100%', position: 'fixed', width: '100%' }}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );
