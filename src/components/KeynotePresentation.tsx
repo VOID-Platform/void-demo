@@ -701,6 +701,7 @@ function DemoProductShell({
   const [report, setReport] = useState<IncidentReport | null>(null);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [architectureMode, setArchitectureMode] = useState<'today' | 'tomorrow'>('today');
+  const [error, setError] = useState<string | null>(null);
 
   const scenario = SCENARIOS[activeIdx];
   const isRunning = phase === 'running-agent' || phase === 'analyzing';
@@ -720,10 +721,12 @@ function DemoProductShell({
     setTrace(null);
     setReport(null);
     setEvidenceOpen(false);
+    setError(null);
   }, [isRunning]);
 
   const handleRun = useCallback(async () => {
     if (isRunning) return;
+    setError(null);
     setPhase('running-agent');
     setActiveStepIndex(0);
     setTrace(null);
@@ -744,16 +747,28 @@ function DemoProductShell({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: scenario.index }),
       });
-      const data = await res.json();
-      if (data.success) {
-        await new Promise<void>(r => setTimeout(r, 400));
-        setTrace(data.trace);
-        setReport(data.report);
-        setPhase('complete');
-      } else {
+      if (!res.ok) {
+        setError(`Server returned ${res.status}. Please try again.`);
         setPhase('idle');
+        return;
       }
-    } catch {
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error || 'Investigation failed. No error details provided.');
+        setPhase('idle');
+        return;
+      }
+      if (!data.trace || !data.report) {
+        setError('Investigation completed but returned incomplete data. Check API response format.');
+        setPhase('idle');
+        return;
+      }
+      await new Promise<void>(r => setTimeout(r, 400));
+      setTrace(data.trace);
+      setReport(data.report);
+      setPhase('complete');
+    } catch (err) {
+      setError(err instanceof TypeError ? 'Network error — unable to reach the investigation service.' : 'Unexpected error during investigation.');
       setPhase('idle');
     }
   }, [isRunning, scenario]);
@@ -918,7 +933,31 @@ function DemoProductShell({
                 </motion.div>
               )}
 
-              {phase === 'idle' && (
+              {error && (
+                <motion.div
+                  key="error"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                  className="flex flex-col items-center justify-center gap-3 py-14 h-full text-center"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-red-950/20 border border-red-500/20 flex items-center justify-center">
+                    <XCircle className="w-6 h-6 text-red-400" />
+                  </div>
+                  <p className="text-xs font-mono text-red-400 max-w-[30ch] leading-relaxed">
+                    {error}
+                  </p>
+                  <button
+                    onClick={() => setError(null)}
+                    className="mt-2 text-xs font-mono text-zinc-500 hover:text-zinc-300 transition-colors"
+                  >
+                    Dismiss
+                  </button>
+                </motion.div>
+              )}
+
+              {phase === 'idle' && !error && (
                 <motion.div
                   key="idle-placeholder"
                   initial={{ opacity: 0 }}
@@ -979,44 +1018,184 @@ function DemoProductShell({
                     />
                   </div>
 
-                  {/* Forensic evidence */}
-                  <div className="space-y-4 relative z-10">
-                    <motion.p
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: 0.28 }}
-                      className="text-xs font-mono text-zinc-500 uppercase tracking-[0.14em]"
-                    >
-                      Forensic Evidence
-                    </motion.p>
-                    <div className="space-y-3 pl-4 border-l border-[#8b5cf6]/28">
-                      {report.evidence.slice(0, 3).map((ev, idx) => (
-                        <TypingLine
-                          key={idx}
-                          text={ev}
-                          delay={[T.ev0, T.ev1, T.ev2][idx]}
-                          className="text-[0.85rem] text-zinc-300 leading-relaxed"
-                        />
-                      ))}
-                    </div>
-                  </div>
 
-                  {/* Recommendation */}
-                  <div className="space-y-3 relative z-10">
-                    <motion.p
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: T.rec / 1000 }}
-                      className="text-xs font-mono text-zinc-500 uppercase tracking-[0.14em]"
+                  {/* ── Full Engineering Analysis Report ── */}
+                  {report.engineeringReport && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4, duration: 0.5 }}
+                      className="relative z-10"
                     >
-                      Actionable Recommendation
-                    </motion.p>
-                    <TypingLine
-                      text={report.recommendation}
-                      delay={T.rec}
-                      className="text-[0.85rem] text-zinc-200 font-medium leading-relaxed"
-                    />
-                  </div>
+                      {/* Panel header */}
+                      <div className="flex items-center gap-2.5 mb-5">
+                        <div className="w-6 h-6 rounded-lg bg-[#8b5cf6]/15 border border-[#8b5cf6]/30 flex items-center justify-center flex-shrink-0">
+                          <Cpu className="w-3.5 h-3.5 text-[#a78bfa]" />
+                        </div>
+                        <span className="text-sm font-semibold text-white tracking-tight">
+                          Engineering Analysis Report
+                        </span>
+                        <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                          {report.analysisSource === 'server_evaluated' ? (
+                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
+                              <span className="text-[9px] font-mono text-emerald-400 uppercase tracking-[0.18em]">Server Evaluated</span>
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
+                              <span className="text-[9px] font-mono text-amber-400 uppercase tracking-[0.18em]">Local Heuristic</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+
+                      {/* Scrollable document body */}
+                      <div
+                        className="report-scroll rounded-2xl border border-white/[0.06] divide-y divide-white/[0.05]"
+                        style={{ maxHeight: '60vh' }}
+                      >
+                        {report.engineeringReport.fullReport ? (
+                          <pre className="p-5 text-[0.8rem] text-zinc-200 font-mono leading-relaxed whitespace-pre-wrap break-words">
+                            {report.engineeringReport.fullReport}
+                          </pre>
+                        ) : (
+                          <>
+                            {/* Executive Summary */}
+                            {(report.engineeringReport.executive_summary || report.engineeringReport.summary) && (
+                              <div className="px-5 py-4 bg-white/[0.01] hover:bg-white/[0.025] transition-colors">
+                                <p className="text-[9px] font-mono text-[#a78bfa] uppercase tracking-[0.22em] mb-1.5">Executive Summary</p>
+                                <p className="text-[0.83rem] text-zinc-200 leading-relaxed">
+                                  {report.engineeringReport.executive_summary || report.engineeringReport.summary}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Impact */}
+                            {report.engineeringReport.impact && (
+                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                                <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-[0.22em] mb-1.5">Impact</p>
+                                <p className="text-[0.83rem] text-red-200 leading-relaxed font-medium">{report.engineeringReport.impact}</p>
+                              </div>
+                            )}
+
+                            {/* Root Cause */}
+                            {report.engineeringReport.root_cause && (
+                              <div className="px-5 py-4 bg-[#8b5cf6]/[0.03] hover:bg-[#8b5cf6]/[0.06] transition-colors">
+                                <p className="text-[9px] font-mono text-[#a78bfa] uppercase tracking-[0.22em] mb-1.5">Root Cause</p>
+                                <p className="text-[0.83rem] text-zinc-100 leading-relaxed font-semibold">
+                                  {report.engineeringReport.root_cause}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Forensic Evidence */}
+                            {report.evidence && report.evidence.length > 0 && (
+                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Forensic Evidence</p>
+                                <ul className="space-y-2">
+                                  {report.evidence.map((ev, i) => (
+                                    <li key={i} className="flex items-start gap-2.5">
+                                      <span className="w-1 h-1 rounded-full bg-[#8b5cf6]/60 mt-[0.45rem] flex-shrink-0" />
+                                      <span className="text-[0.8rem] text-zinc-300 leading-relaxed">{ev}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Suspected Components */}
+                            {report.engineeringReport.suspected_components && report.engineeringReport.suspected_components.length > 0 && (
+                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Suspected Components</p>
+                                <ul className="space-y-1.5">
+                                  {report.engineeringReport.suspected_components.map((comp, i) => (
+                                    <li key={i} className="flex items-center gap-2">
+                                      <span className="w-1 h-1 rounded-full bg-amber-400/50 flex-shrink-0" />
+                                      <span className="font-mono text-[0.78rem] text-amber-200/80">{comp}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Relevant Files */}
+                            {report.engineeringReport.relevant_files && report.engineeringReport.relevant_files.length > 0 && (
+                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Relevant Files</p>
+                                <ul className="space-y-1.5">
+                                  {report.engineeringReport.relevant_files.map((f, i) => (
+                                    <li key={i} className="font-mono text-[0.75rem] text-[#a78bfa] pl-3 border-l border-[#8b5cf6]/30">{f}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Suggested Fix */}
+                            {report.engineeringReport.suggested_fix && (
+                              <div className="px-5 py-4 bg-emerald-950/10 hover:bg-emerald-950/20 transition-colors">
+                                <p className="text-[9px] font-mono text-emerald-400/70 uppercase tracking-[0.22em] mb-2">Suggested Fix</p>
+                                <p className="font-mono text-[0.78rem] text-emerald-300 leading-relaxed whitespace-pre-wrap">
+                                  {report.engineeringReport.suggested_fix}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Actionable Recommendation */}
+                            {report.recommendation && (
+                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-1.5">Actionable Recommendation</p>
+                                <p className="text-[0.83rem] text-zinc-200 leading-relaxed font-medium">{report.recommendation}</p>
+                              </div>
+                            )}
+
+                            {/* Suggested Tests */}
+                            {report.engineeringReport.suggested_tests && report.engineeringReport.suggested_tests.length > 0 && (
+                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Suggested Tests</p>
+                                <ul className="space-y-1.5">
+                                  {report.engineeringReport.suggested_tests.map((t, i) => (
+                                    <li key={i} className="flex items-center gap-2">
+                                      <span className="w-1 h-1 rounded-full bg-zinc-600 flex-shrink-0" />
+                                      <span className="font-mono text-[0.75rem] text-zinc-400">{t}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Execution Timeline */}
+                            {report.timeline && report.timeline.length > 0 && (
+                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
+                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Execution Timeline</p>
+                                <div className="space-y-0">
+                                  {report.timeline.map((entry, i) => (
+                                    <div key={i} className="flex items-start gap-3 py-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-zinc-700 mt-[0.35rem] flex-shrink-0" />
+                                      <span className="font-mono text-[0.72rem] text-zinc-500 leading-snug">{entry}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Sampling / Disclaimer */}
+                            {(report.samplingInfo || report.disclaimer) && (
+                              <div className="px-5 py-3 bg-white/[0.008]">
+                                {report.samplingInfo && (
+                                  <p className="text-[0.68rem] font-mono text-zinc-600 mb-0.5">{report.samplingInfo}</p>
+                                )}
+                                {report.disclaimer && (
+                                  <p className="text-[0.65rem] font-mono text-zinc-700 leading-snug">{report.disclaimer}</p>
+                                )}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
 
                   {/* OpenTelemetry spans inspector */}
                   <motion.div

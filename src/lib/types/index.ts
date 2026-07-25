@@ -56,8 +56,22 @@ export interface IncidentReport {
   timeline: string[];
   recommendation: string;
   analysisCategory: 'deterministic' | 'semantic';
+  analysisSource: 'server_evaluated' | 'local_heuristic';
   samplingInfo: string; // "Semantic Sampling (category-flagged traces: 2 of 10)"
   disclaimer: string;
+  engineeringReport?: {
+    summary?: string;
+    root_cause?: string;
+    executive_summary?: string;
+    impact?: string;
+    suspected_components?: string[];
+    relevant_files?: string[];
+    suggested_fix?: string;
+    suggested_tests?: string[];
+    confidence?: number;
+    /** Raw markdown/text returned verbatim from the backend */
+    fullReport?: string;
+  };
   futureRemediation?: {
     action: string; // e.g., "Create GitHub Issue", "PagerDuty Trigger"
     target: string;

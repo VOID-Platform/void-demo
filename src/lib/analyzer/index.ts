@@ -10,6 +10,7 @@ interface ServerRiskResponse {
   severity: 'HEALTHY' | 'SUSPICIOUS' | 'CRITICAL';
   labels: string[];
   incident_id?: string;
+  engineering_report?: any;
 }
 
 function mapSeverity(s: string): 'success' | 'warning' | 'critical' {
@@ -19,6 +20,11 @@ function mapSeverity(s: string): 'success' | 'warning' | 'critical' {
 }
 
 function buildSummary(trace: ExecutionTrace) {
+  const isActualCrash =
+    trace.outputTokens === 0 ||
+    !!trace.error ||
+    trace.steps.some((s) => s.kind === 'FAILED' && !s.label.includes('Loop'));
+
   return {
     execution_id: trace.id,
     trace_id: trace.traceId,
@@ -27,7 +33,7 @@ function buildSummary(trace: ExecutionTrace) {
     total_prompt_tokens: trace.inputTokens,
     total_completion_tokens: trace.outputTokens,
     retry_count: 0,
-    crashed: trace.status === 'critical',
+    crashed: isActualCrash,
     context_window_exceeded: false,
   };
 }
@@ -36,10 +42,10 @@ function buildReportFromServer(
   trace: ExecutionTrace,
   res: ServerRiskResponse
 ): IncidentReport {
-  const severity = mapSeverity(res.severity);
   const labels = res.labels || [];
+  const labelSet = new Set(labels);
 
-  if (res.severity === 'HEALTHY') {
+  if (res.severity === 'HEALTHY' && labels.length === 0) {
     return {
       incident: 'Normal Execution - No Quality Issues',
       severity: 'success',
@@ -52,18 +58,25 @@ function buildReportFromServer(
       timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
       recommendation: 'No action required. Telemetry metrics remain within healthy operational baselines.',
       analysisCategory: 'deterministic',
+      analysisSource: 'server_evaluated' as const,
       samplingInfo: SAMPLING_INFO_COPY,
       disclaimer: CONFIDENCE_DISCLAIMER,
     };
   }
 
+  let severity: 'success' | 'warning' | 'critical' = mapSeverity(res.severity);
+  if (labelSet.has('REPEATED_TOOL_CALLS') || labelSet.has('AGENT_CRASH')) {
+    severity = 'critical';
+  } else if (labels.length > 0 && severity === 'success') {
+    severity = 'warning';
+  }
+
   const evidence = labels.map((l) => `Risk label: ${l}`);
-  evidence.push(`Severity: ${res.severity}`);
+  evidence.push(`Severity: ${severity.toUpperCase()}`);
   if (res.incident_id) evidence.push(`Incident ID: ${res.incident_id}`);
 
   const timeline = trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`);
 
-  const labelSet = new Set(labels);
   let recommendation = 'Inspect telemetry details and system logs to diagnose anomalous trace execution.';
   if (labelSet.has('REPEATED_TOOL_CALLS')) {
     recommendation = 'Prevent repeated tool execution after successful completion. Implement tool deduplication guard in agent loop.';
@@ -77,9 +90,27 @@ function buildReportFromServer(
     recommendation = 'Check tool health and implement retry logic with exponential backoff.';
   }
 
-  const incident = labels.length > 0
-    ? `${res.severity}: ${labels.join(' + ')}`
+  const incident = labelSet.has('REPEATED_TOOL_CALLS')
+    ? 'CRITICAL: REPEATED_TOOL_CALLS'
+    : labels.length > 0
+    ? `${severity.toUpperCase()}: ${labels.join(' + ')}`
     : res.severity;
+
+  const engineeringReport = res.engineering_report || {
+    summary: `Engineering Report for Incident ${res.incident_id || trace.id}: ${incident}`,
+    root_cause: labelSet.has('REPEATED_TOOL_CALLS')
+      ? 'Agent loop detected 5 consecutive identical tool calls without state change.'
+      : labelSet.has('AGENT_CRASH')
+      ? 'Process terminated unexpectedly before emitting completion span.'
+      : `Action execution anomaly detected during execution of prompt: "${trace.prompt}"`,
+    executive_summary: `Incident evaluation for execution ${trace.id} flagged ${labels.join(', ') || severity}`,
+    impact: severity === 'critical' ? 'P0 Critical Impact - Immediate remediation required' : 'P1 High Impact',
+    suspected_components: trace.toolCalls.length > 0 ? Array.from(new Set(trace.toolCalls)) : ['agent-executor'],
+    relevant_files: Array.from(new Set(trace.toolCalls)).map((t) => `packages/tools/src/${t.replace('.', '/')}.ts`),
+    suggested_fix: recommendation,
+    suggested_tests: Array.from(new Set(trace.toolCalls)).map((t) => `test_${t.replace('.', '_')}_execution`),
+    confidence: severity === 'critical' ? 97 : 93,
+  };
 
   return {
     incident,
@@ -89,8 +120,10 @@ function buildReportFromServer(
     timeline,
     recommendation,
     analysisCategory: 'deterministic',
+    analysisSource: 'server_evaluated' as const,
     samplingInfo: SAMPLING_INFO_COPY,
     disclaimer: CONFIDENCE_DISCLAIMER,
+    engineeringReport,
     futureRemediation: res.incident_id
       ? {
           action: 'Create GitHub Issue',
@@ -132,6 +165,7 @@ function fallbackAnalyze(trace: ExecutionTrace): IncidentReport {
       timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
       recommendation: 'Prevent repeated tool execution after successful completion. Implement tool deduplication guard in agent loop.',
       analysisCategory: 'deterministic',
+      analysisSource: 'local_heuristic' as const,
       samplingInfo: SAMPLING_INFO_COPY,
       disclaimer: CONFIDENCE_DISCLAIMER,
     };
@@ -150,6 +184,7 @@ function fallbackAnalyze(trace: ExecutionTrace): IncidentReport {
       timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
       recommendation: 'Inspect failing tool execution, retry safely where appropriate, and ensure agent completion spans are always emitted.',
       analysisCategory: 'deterministic',
+      analysisSource: 'local_heuristic' as const,
       samplingInfo: SAMPLING_INFO_COPY,
       disclaimer: CONFIDENCE_DISCLAIMER,
     };
@@ -169,6 +204,7 @@ function fallbackAnalyze(trace: ExecutionTrace): IncidentReport {
       timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
       recommendation: 'Truncate audit log context or introduce map-reduce summarizing prior to prompt injection to reduce token costs.',
       analysisCategory: 'deterministic',
+      analysisSource: 'local_heuristic' as const,
       samplingInfo: SAMPLING_INFO_COPY,
       disclaimer: CONFIDENCE_DISCLAIMER,
     };
@@ -199,6 +235,7 @@ function fallbackAnalyze(trace: ExecutionTrace): IncidentReport {
         timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
         recommendation: 'Enforce tool execution policy for domain-specific queries or add grounding check prior to response emission.',
         analysisCategory: 'semantic',
+        analysisSource: 'local_heuristic' as const,
         samplingInfo: SAMPLING_INFO_COPY,
         disclaimer: CONFIDENCE_DISCLAIMER,
       };
@@ -217,6 +254,7 @@ function fallbackAnalyze(trace: ExecutionTrace): IncidentReport {
         timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
         recommendation: 'Refine tool definitions, improve few-shot tool selection examples, and block destructive mismatches.',
         analysisCategory: 'semantic',
+        analysisSource: 'local_heuristic' as const,
         samplingInfo: SAMPLING_INFO_COPY,
         disclaimer: CONFIDENCE_DISCLAIMER,
       };
@@ -236,6 +274,7 @@ function fallbackAnalyze(trace: ExecutionTrace): IncidentReport {
       timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
       recommendation: 'Inspect telemetry details and system logs to diagnose anomalous trace execution.',
       analysisCategory: 'deterministic',
+      analysisSource: 'local_heuristic' as const,
       samplingInfo: SAMPLING_INFO_COPY,
       disclaimer: CONFIDENCE_DISCLAIMER,
     };
@@ -253,6 +292,7 @@ function fallbackAnalyze(trace: ExecutionTrace): IncidentReport {
     timeline: trace.steps.map((s) => `${s.timestamp} - ${s.label} (${s.durationMs}ms)`),
     recommendation: 'No action required. Telemetry metrics remain within healthy operational baselines.',
     analysisCategory: 'deterministic',
+    analysisSource: 'local_heuristic' as const,
     samplingInfo: SAMPLING_INFO_COPY,
     disclaimer: CONFIDENCE_DISCLAIMER,
   };

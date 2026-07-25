@@ -219,6 +219,7 @@ export const DiagnosisStage: React.FC = () => {
   const [activeCount, setActiveCount] = useState(0);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const scenario = SCENARIOS[activeIdx];
   const isRunning = phase === 'running-agent' || phase === 'analyzing';
@@ -232,10 +233,12 @@ export const DiagnosisStage: React.FC = () => {
     setTrace(null);
     setReport(null);
     setEvidenceOpen(false);
+    setError(null);
   }, [isBusy]);
 
   const handleRun = useCallback(async () => {
     if (isBusy) return;
+    setError(null);
     setPhase('running-agent');
     setActiveStepIndex(0);
     setTrace(null);
@@ -256,22 +259,35 @@ export const DiagnosisStage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ index: scenario.index }),
       });
-      const data = await res.json();
-      if (data.success) {
-        await new Promise<void>(r => setTimeout(r, 500));
-        setTrace(data.trace);
-        setReport(data.report);
-        setPhase('complete');
-      } else {
+      if (!res.ok) {
+        setError(`Server returned ${res.status}. Please try again.`);
         setPhase('idle');
+        return;
       }
-    } catch {
+      const data = await res.json();
+      if (!data.success) {
+        setError(data.error || 'Investigation failed. No error details provided.');
+        setPhase('idle');
+        return;
+      }
+      if (!data.trace || !data.report) {
+        setError('Investigation completed but returned incomplete data. Check API response format.');
+        setPhase('idle');
+        return;
+      }
+      await new Promise<void>(r => setTimeout(r, 500));
+      setTrace(data.trace);
+      setReport(data.report);
+      setPhase('complete');
+    } catch (err) {
+      setError(err instanceof TypeError ? 'Network error — unable to reach the investigation service.' : 'Unexpected error during investigation.');
       setPhase('idle');
     }
   }, [isBusy, scenario]);
 
   const handleRunAll = useCallback(async () => {
     if (isBusy) return;
+    setError(null);
     setIsExecutingAll(true);
     setActiveCount(10);
     setPhase('analyzing');
@@ -280,25 +296,32 @@ export const DiagnosisStage: React.FC = () => {
 
     try {
       const res = await fetch('/api/agent/run-all', { method: 'POST' });
-      const data = await res.json();
-      if (data.success && data.traces && data.traces.length > 0) {
-        const currentScenarioIndex = SCENARIOS[activeIdx].index;
-        let targetIdx = data.traces.findIndex((t: ExecutionTrace) => t.index === currentScenarioIndex);
-        if (targetIdx === -1) targetIdx = 0;
-
-        const matchedScenarioIdx = SCENARIOS.findIndex((s) => s.index === data.traces[targetIdx].index);
-        if (matchedScenarioIdx !== -1) {
-          setActiveIdx(matchedScenarioIdx);
-          setActiveStepIndex(SCENARIOS[matchedScenarioIdx].agentSteps.length - 1);
-        }
-
-        setTrace(data.traces[targetIdx]);
-        setReport(data.reports[targetIdx]);
-        setPhase('complete');
-      } else {
+      if (!res.ok) {
+        setError(`Server returned ${res.status}. Please try again.`);
         setPhase('idle');
+        return;
       }
-    } catch {
+      const data = await res.json();
+      if (!data.success || !data.traces || data.traces.length === 0) {
+        setError('Batch investigation returned no results.');
+        setPhase('idle');
+        return;
+      }
+      const currentScenarioIndex = SCENARIOS[activeIdx].index;
+      let targetIdx = data.traces.findIndex((t: ExecutionTrace) => t.index === currentScenarioIndex);
+      if (targetIdx === -1) targetIdx = 0;
+
+      const matchedScenarioIdx = SCENARIOS.findIndex((s) => s.index === data.traces[targetIdx].index);
+      if (matchedScenarioIdx !== -1) {
+        setActiveIdx(matchedScenarioIdx);
+        setActiveStepIndex(SCENARIOS[matchedScenarioIdx].agentSteps.length - 1);
+      }
+
+      setTrace(data.traces[targetIdx]);
+      setReport(data.reports[targetIdx]);
+      setPhase('complete');
+    } catch (err) {
+      setError(err instanceof TypeError ? 'Network error — unable to reach the investigation service.' : 'Unexpected error during batch investigation.');
       setPhase('idle');
     } finally {
       setIsExecutingAll(false);
@@ -473,6 +496,30 @@ export const DiagnosisStage: React.FC = () => {
                   />
                 ))}
               </div>
+            </motion.div>
+          )}
+
+          {error && (
+            <motion.div
+              key="error"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+              className="flex flex-col items-center gap-3 py-16 text-center"
+            >
+              <div className="w-12 h-12 rounded-2xl bg-red-950/20 border border-red-500/20 flex items-center justify-center">
+                <XCircle className="w-6 h-6 text-red-400" />
+              </div>
+              <p className="text-sm font-mono text-red-400 max-w-[40ch] leading-relaxed">
+                {error}
+              </p>
+              <button
+                onClick={() => setError(null)}
+                className="text-xs font-mono text-zinc-500 hover:text-zinc-300 transition-colors"
+              >
+                Dismiss
+              </button>
             </motion.div>
           )}
 

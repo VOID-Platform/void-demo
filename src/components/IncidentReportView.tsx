@@ -139,6 +139,55 @@ export const IncidentReportView: React.FC<IncidentReportViewProps> = ({ report, 
         <p className="text-xs font-sans text-zinc-200">{report.recommendation}</p>
       </div>
 
+      {/* Engineering Report Card */}
+      {report.engineeringReport && (
+        <div className="p-4 rounded-xl bg-[#090910] border border-[#a78bfa]/30 mb-4 space-y-3">
+          <div className="flex items-center justify-between border-b border-[#1F1F24] pb-2">
+            <h4 className="text-xs font-sans font-bold text-[#a78bfa] uppercase tracking-wide flex items-center space-x-1.5">
+              <Cpu className="w-4 h-4 text-[#a78bfa]" />
+              <span>Engineering Incident Analysis Report</span>
+            </h4>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#8b5cf6]/20 text-[#a78bfa] border border-[#8b5cf6]/30">
+              {report.engineeringReport.impact || 'P0 Critical'}
+            </span>
+          </div>
+
+          <div className="space-y-2 text-xs font-sans">
+            <div>
+              <span className="text-zinc-400 font-semibold">Root Cause: </span>
+              <span className="text-zinc-200">{report.engineeringReport.root_cause}</span>
+            </div>
+
+            {report.engineeringReport.executive_summary && (
+              <div>
+                <span className="text-zinc-400 font-semibold">Executive Summary: </span>
+                <span className="text-zinc-300">{report.engineeringReport.executive_summary}</span>
+              </div>
+            )}
+
+            {report.engineeringReport.suspected_components && report.engineeringReport.suspected_components.length > 0 && (
+              <div>
+                <span className="text-zinc-400 font-semibold">Suspected Components: </span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {report.engineeringReport.suspected_components.map((comp: string, i: number) => (
+                    <span key={i} className="px-2 py-0.5 rounded bg-[#13131A] text-zinc-300 text-[10px] font-mono border border-[#1F1F24]">
+                      {comp}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {report.engineeringReport.suggested_fix && (
+              <div className="p-2.5 rounded-lg bg-[#13131A] border border-[#1F1F24] mt-2">
+                <div className="text-zinc-400 font-semibold text-[11px] mb-1">Suggested Engineering Fix:</div>
+                <div className="text-emerald-400 font-mono text-[11px]">{report.engineeringReport.suggested_fix}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Future Remediation Preview */}
       {report.futureRemediation && (
         <div className="p-4 rounded-xl bg-[#030307] border border-zinc-800 mb-4 flex items-center justify-between gap-3">
