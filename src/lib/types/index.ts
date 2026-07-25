@@ -30,7 +30,7 @@ export interface StoryChapter {
 export interface ExecutionTrace {
   id: string;
   traceId: string;
-  index: number; // 1 to 10
+  index: number; // 1 to 12
   title: string;
   prompt: string;
   user: string;
@@ -41,6 +41,8 @@ export interface ExecutionTrace {
   totalTokens: number;
   steps: ExecutionStep[];
   toolCalls: string[];
+  failedToolCalls?: string[];
+  contextWindowExceeded?: boolean;
   response: string;
   error?: string;
   attributes: Record<string, unknown>;
@@ -51,13 +53,13 @@ export interface ExecutionTrace {
 export interface IncidentReport {
   incident: string;
   severity: Severity;
-  confidence: number; // e.g. 99, 97
+  confidence: number;
   evidence: string[];
   timeline: string[];
   recommendation: string;
   analysisCategory: 'deterministic' | 'semantic';
   analysisSource: 'server_evaluated' | 'local_heuristic';
-  samplingInfo: string; // "Semantic Sampling (category-flagged traces: 2 of 10)"
+  samplingInfo: string;
   disclaimer: string;
   engineeringReport?: {
     summary?: string;
@@ -69,11 +71,10 @@ export interface IncidentReport {
     suggested_fix?: string;
     suggested_tests?: string[];
     confidence?: number;
-    /** Raw markdown/text returned verbatim from the backend */
     fullReport?: string;
   };
   futureRemediation?: {
-    action: string; // e.g., "Create GitHub Issue", "PagerDuty Trigger"
+    action: string;
     target: string;
     details: string;
   };

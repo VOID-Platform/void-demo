@@ -29,6 +29,9 @@ import {
   ChevronRight,
   ChevronLeft,
   ArrowLeft,
+  RotateCcw,
+  Loader2,
+  Check,
 } from 'lucide-react';
 import { VoidLogo } from '@/components/VoidLogo';
 import { ExecutionTrace, IncidentReport } from '@/lib/types';
@@ -42,51 +45,51 @@ const TOTAL_SLIDES = 4;
 
 const SCENARIOS = [
   {
-    index: 6,
-    pill: 'Recursive API Loop',
-    severity: 'critical' as const,
-    summary: 'github.createIssue executed 5 consecutive times in 710ms',
+    index: 1,
+    pill: 'Runaway Loop',
+    severity: 'warning' as const,
+    summary: 'Agent sent 5 identical Slack messages then blew the context window',
     agentSteps: [
-      { label: 'Task received', detail: 'Escalate high-priority sync bug to engineering' },
-      { label: 'Planning', detail: 'Identified escalation path → github.createIssue' },
-      { label: 'Tool execution', detail: 'github.createIssue called × 5 — identical parameters', isError: true },
-      { label: 'Loop detected', detail: 'Five duplicate issues created in 710ms', isError: true },
+      { label: 'Task received', detail: 'Notify failed-payment customers via Slack' },
+      { label: 'Planning', detail: 'Inferred recipient list instead of querying DB' },
+      { label: 'Duplicate loop', detail: 'slack.sendMessage called × 5 — identical params', isError: true },
+      { label: 'Context overflow', detail: 'Context window exceeded — forced termination', isError: true },
+    ],
+  },
+  {
+    index: 2,
+    pill: 'Agent Crash',
+    severity: 'critical' as const,
+    summary: 'Agent died mid-flight on Stripe billing call, no final response',
+    agentSteps: [
+      { label: 'Task received', detail: 'Upgrade team billing from 25 to 50 seats' },
+      { label: 'Pre-flight checks', detail: 'Validated permissions and balance' },
+      { label: 'TLS crash', detail: 'stripe.updateQuantity — ConnectionResetError', isError: true },
+      { label: 'No completion span', detail: 'Agent died mid-stream — billing state ambiguous', isError: true },
+    ],
+  },
+  {
+    index: 3,
+    pill: 'Silent Hallucination',
+    severity: 'warning' as const,
+    summary: '20× burst — 0 tools called, adaptive sampling promotes 1 for deep eval',
+    agentSteps: [
+      { label: 'Task received', detail: 'What is the weather in Paris?' },
+      { label: 'Tool lookup skipped', detail: 'Generated answer without calling any weather API', isError: true },
+      { label: 'Response emitted', detail: '"The weather in Paris is 25°C" — unverified claim' },
+      { label: '20× concurrent burst', detail: 'Adaptive sampling: 1 of 20 promoted for semantic eval' },
     ],
   },
   {
     index: 4,
-    pill: 'Silent Hallucination',
-    severity: 'warning' as const,
-    summary: 'Weather claim returned with zero tools invoked',
-    agentSteps: [
-      { label: 'Task received', detail: 'What is the weather in Paris?' },
-      { label: 'Planning', detail: 'Parsed weather query — tool lookup expected' },
-      { label: 'Tools skipped', detail: 'Generated response without calling any weather API', isError: true },
-      { label: 'Response emitted', detail: '"The weather in Paris is 25°C." — unverified claim' },
-    ],
-  },
-  {
-    index: 8,
-    pill: 'Wrong Tool Action',
+    pill: 'Token Waste + DB Fail',
     severity: 'critical' as const,
-    summary: 'User requested GitHub issue; agent executed slack.sendMessage',
+    summary: 'Burned 27k tokens then hit a DB timeout on dashboard update',
     agentSteps: [
-      { label: 'Task received', detail: 'Create a GitHub issue for the payment gateway timeout bug' },
-      { label: 'Intent classified', detail: 'Classified as: notification task — incorrect' },
-      { label: 'Wrong tool selected', detail: 'Called slack.sendMessage instead of github.createIssue', isError: true },
-      { label: 'False success reported', detail: 'Agent confirmed "issue created" — GitHub issue never opened' },
-    ],
-  },
-  {
-    index: 9,
-    pill: 'Execution Crash',
-    severity: 'critical' as const,
-    summary: 'Agent process crashed mid-stream during Stripe seat update',
-    agentSteps: [
-      { label: 'Task received', detail: 'Process automated seat upgrade for team billing' },
-      { label: 'Pre-flight checks', detail: 'Validated billing permissions and org balance' },
-      { label: 'TLS crash', detail: 'stripe.updateQuantity — ConnectionResetError during TLS', isError: true },
-      { label: 'Span never emitted', detail: 'Agent died mid-stream — billing state ambiguous', isError: true },
+      { label: 'Task received', detail: 'Analyze 30 days of deployment logs across 12 services' },
+      { label: 'Token blow-up', detail: '22k input + 5k output tokens — exceeds budget', isError: true },
+      { label: 'DB timeout', detail: 'dashboard.update — connection pool exhausted', isError: true },
+      { label: 'Partial success', detail: 'Logs processed but dashboard update failed' },
     ],
   },
 ] as const;
@@ -715,6 +718,34 @@ function DemoProductShell({
   );
   const T = { ev0: 400, ev1: 1100, ev2: 1800, rec: 2600 };
 
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
+
+  const handleResetDemoState = useCallback(async () => {
+    if (isResetting || isRunning) return;
+    setIsResetting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/reset', { method: 'POST' });
+      if (res.ok) {
+        setResetDone(true);
+        setPhase('idle');
+        setTrace(null);
+        setReport(null);
+        setIncidentId(null);
+        setEvidenceOpen(false);
+        setActiveStepIndex(-1);
+        setTimeout(() => setResetDone(false), 3000);
+      } else {
+        setError('Failed to reset database & queues.');
+      }
+    } catch {
+      setError('Network error resetting system state.');
+    } finally {
+      setIsResetting(false);
+    }
+  }, [isResetting, isRunning]);
+
   const handleSelectScenario = useCallback((idx: number) => {
     if (isRunning) return;
     setActiveIdx(idx);
@@ -756,6 +787,12 @@ function DemoProductShell({
       if (!data.success) { setError(data.error ?? 'Investigation failed.'); setPhase('failed'); return; }
 
       setTrace(data.trace);
+
+      if (data.report) {
+        setReport(data.report);
+        setPhase('complete');
+        return;
+      }
 
       if (data.isHealthy || !data.incidentId) {
         setReport({
@@ -838,20 +875,47 @@ function DemoProductShell({
 
   return (
     <div className="demo-shell">
-      {/* Back-to-deck pill */}
-      <button
-        onClick={onBackToDeck}
-        className="back-pill"
-        aria-label="Back to presentation deck"
-      >
-        <ArrowLeft className="w-3.5 h-3.5" />
-        <span>Back to Deck</span>
-      </button>
+      {/* Top Header Actions Container (Grouped on Top Right) */}
+      <div className="fixed top-6 right-6 z-50 flex items-center gap-3 pointer-events-auto">
+        {/* Back to Deck Pill */}
+        <button
+          onClick={onBackToDeck}
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0a0a0f]/80 backdrop-blur-md border border-white/[0.09] hover:border-white/20 text-xs font-semibold text-zinc-300 hover:text-white transition-all duration-300 shadow-xl cursor-pointer"
+          aria-label="Back to presentation deck"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>Back to Deck</span>
+        </button>
 
-      {/* VOID logo pill — top right */}
-      <div className="skip-pill" style={{ cursor: 'default' }}>
-        <VoidLogo size={18} glow={false} />
-        <span className="text-[#a78bfa]">Live Demo</span>
+        {/* Aesthetic Reset Queue & DB Button */}
+        <button
+          onClick={handleResetDemoState}
+          disabled={isResetting || isRunning}
+          className="flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-red-500/15 via-purple-500/15 to-blue-500/15 hover:from-red-500/25 hover:via-purple-500/25 hover:to-blue-500/25 border border-white/10 hover:border-red-500/40 text-xs font-mono font-medium text-zinc-300 hover:text-white shadow-xl transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed group cursor-pointer"
+        >
+          {isResetting ? (
+            <>
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+              <span>Resetting Queue & DB…</span>
+            </>
+          ) : resetDone ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-400 animate-bounce" />
+              <span className="text-emerald-300 font-semibold">State Cleared!</span>
+            </>
+          ) : (
+            <>
+              <RotateCcw className="w-3.5 h-3.5 text-red-400 group-hover:rotate-[-180deg] transition-transform duration-500" />
+              <span>Reset Queue & DB</span>
+            </>
+          )}
+        </button>
+
+        {/* Live Demo Pill */}
+        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0a0a0f]/80 backdrop-blur-md border border-white/[0.09] text-xs font-semibold text-zinc-300">
+          <VoidLogo size={16} glow={false} />
+          <span className="text-[#a78bfa]">Live Demo</span>
+        </div>
       </div>
 
       {/* Demo content */}
@@ -1207,13 +1271,7 @@ function DemoProductShell({
                               </div>
                             )}
 
-                            {/* Actionable Recommendation */}
-                            {report.recommendation && (
-                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
-                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-1.5">Actionable Recommendation</p>
-                                <p className="text-[0.83rem] text-zinc-200 leading-relaxed font-medium">{report.recommendation}</p>
-                              </div>
-                            )}
+
 
                             {/* Suggested Tests */}
                             {report.engineeringReport.suggested_tests && report.engineeringReport.suggested_tests.length > 0 && (
@@ -1340,98 +1398,7 @@ function DemoProductShell({
 
         </div>
 
-        {/* Vision section */}
-        <div className="pt-8 border-t border-white/[0.05] space-y-8">
-          <div className="text-center space-y-3">
-            <p className="text-overline text-[#a78bfa] uppercase tracking-[0.2em]">Architecture Vision</p>
-            <h3
-              className="font-[700] tracking-[-0.03em] text-white leading-tight"
-              style={{ fontSize: 'clamp(1.35rem, 2.5vw, 1.85rem)' }}
-            >
-              The SDK stays untouched. Only the consumer transforms.
-            </h3>
-            <p className="text-sm text-zinc-400 max-w-[48ch] mx-auto leading-relaxed">
-              See how VOID evolves from today's deterministic analyzer into tomorrow's autonomous incident server.
-            </p>
-          </div>
 
-          {/* Toggle */}
-          <div className="flex justify-center">
-            <div className="p-1 rounded-full bg-white/[0.03] border border-white/[0.07] flex items-center gap-1 font-mono text-xs">
-              <button
-                onClick={() => setArchitectureMode('today')}
-                className={`px-4 py-2 rounded-full transition-all duration-300 ${
-                  architectureMode === 'today'
-                    ? 'bg-[#8b5cf6] text-white font-semibold shadow-md'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                Today: Analyzer
-              </button>
-              <button
-                onClick={() => setArchitectureMode('tomorrow')}
-                className={`px-4 py-2 rounded-full transition-all duration-300 ${
-                  architectureMode === 'tomorrow'
-                    ? 'bg-emerald-500 text-black font-semibold shadow-md'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                }`}
-              >
-                Tomorrow: VOID Server
-              </button>
-            </div>
-          </div>
-
-          {/* Architecture panel */}
-          <AnimatePresence mode="wait">
-            {architectureMode === 'today' ? (
-              <motion.div
-                key="today"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.38 }}
-                className="p-6 md:p-8 rounded-3xl bg-white/[0.014] border border-white/[0.07] space-y-4 text-left"
-              >
-                <div className="flex items-center gap-3 text-xs font-mono text-zinc-400">
-                  <span className="w-2 h-2 rounded-full bg-[#8b5cf6]" />
-                  <span>SDK Instrumentation → DemoIncidentAnalyzer → Incident Intelligence</span>
-                </div>
-                <h4 className="text-base font-bold text-white">Deterministic Incident Analyzer</h4>
-                <p className="text-sm text-zinc-400 leading-relaxed">
-                  Standard OpenTelemetry spans flow into{' '}
-                  <code className="text-[#a78bfa] font-mono">DemoIncidentAnalyzer</code>{' '}
-                  which interprets reasoning loops, hallucination anomalies, and TLS socket crashes in real time.
-                </p>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="tomorrow"
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -12 }}
-                transition={{ duration: 0.38 }}
-                className="p-6 md:p-8 rounded-3xl bg-emerald-950/14 border border-emerald-500/20 space-y-4 text-left"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3 text-xs font-mono text-emerald-400">
-                    <GitPullRequest className="w-4 h-4" />
-                    <span>Autonomous Remediation Server</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/40 border border-emerald-500/28 px-2.5 py-0.5 rounded-full">
-                    Zero SDK Changes
-                  </span>
-                </div>
-                <h4 className="text-base font-bold text-white">VOID Autonomous Server</h4>
-                <p className="text-sm text-zinc-300 leading-relaxed">
-                  VOID Server replaces only the consumer. The exact same OpenTelemetry spans automatically
-                  create GitHub issues (<code className="text-emerald-400 font-mono">novaflow/core#402</code>),
-                  file Linear tickets (<code className="text-emerald-400 font-mono">LIN-402</code>), and
-                  dispatch PagerDuty incidents — without changing a single line of upstream application code.
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
       </div>
 
       {/* Walkthrough modal */}

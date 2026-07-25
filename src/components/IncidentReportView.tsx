@@ -130,14 +130,7 @@ export const IncidentReportView: React.FC<IncidentReportViewProps> = ({ report, 
         </div>
       </div>
 
-      {/* Actionable Recommendation Box */}
-      <div className="p-4 rounded-xl bg-[#13131A] border border-[#1F1F24] mb-4">
-        <h4 className="text-xs font-sans font-bold text-white uppercase tracking-wide mb-1 flex items-center space-x-1.5">
-          <ArrowRight className="w-3.5 h-3.5 text-[#DF00FF]" />
-          <span>Actionable Recommendation</span>
-        </h4>
-        <p className="text-xs font-sans text-zinc-200">{report.recommendation}</p>
-      </div>
+
 
       {/* Engineering Report Card */}
       {report.engineeringReport && (
