@@ -1,8 +1,38 @@
 import { NextResponse } from 'next/server';
 import { runFakeExecution } from '@/lib/fake-agent';
-import { buildTraceSummary } from '@/lib/analyzer';
+import { voidSdk } from '@void-hq/sdk';
 
 const SERVER_URL = process.env.VOID_SERVER_URL || 'http://localhost:3001';
+
+async function runWithCapture(index: number): Promise<{ incident_id?: string; status: string; execution_id?: string; sampled?: boolean } | null> {
+  let resolved: { incident_id?: string; status: string; execution_id?: string; sampled?: boolean } | null = null;
+
+  const cb = async (summary: unknown) => {
+    const res = await fetch(`${SERVER_URL}/api/traces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(summary),
+    });
+    if (res.ok) {
+      const body = await res.json();
+      resolved = {
+        status: body.status,
+        incident_id: body.incident_id,
+        execution_id: body.execution_id,
+        sampled: body.sampled === true,
+      };
+    }
+  };
+  voidSdk.setSubmitFn(cb);
+
+  try {
+    await runFakeExecution(index);
+  } finally {
+    voidSdk.setSubmitFn(null);
+  }
+
+  return resolved;
+}
 
 export async function POST(req: Request) {
   try {
@@ -11,99 +41,55 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: 'index must be 1–12' }, { status: 400 });
     }
 
-    console.log(`[demo/api/agent/run] 🚀 Executing scenario index=${body.index}`);
-    const trace = await runFakeExecution(body.index);
-    const summary = buildTraceSummary(trace);
-    summary.execution_id = `${summary.execution_id}_${Date.now()}`;
-    console.log(`[demo/api/agent/run] 📊 Trace generated: id=${trace.id} title="${trace.title}" tools=${trace.toolCalls.length}`);
+    const count = body.batch ?? 1;
+    console.log(`[demo/api/agent/run] scenario index=${body.index} count=${count}`);
 
-    // ponytail: scenario 3 (hallucination) fires 20 concurrent traces to fill
-    // the adaptive-sampling window; the risk engine says HEALTHY (0 tools ≠ policy),
-    // but the sampler promotes 1 of 20 for semantic evaluation
-    if (trace.flaggedForSemantic && trace.toolCalls.length === 0) {
-      console.log(`[demo/api/agent/run] 🌀 Silent Hallucination trace detected — forwarding to incident pipeline...`);
-      const semanticSummary = {
-        ...summary,
-        crashed: true, // triggers SUSPICIOUS/CRITICAL severity in risk-engine
-        steps: [
-          {
-            tool_name: "weather.getForecast",
-            success: false,
-            latency_ms: 240,
-            error: "Tool lookup skipped — agent emitted unverified weather claim 'The weather in Paris is 25°C' with zero API calls",
-          },
-        ],
-      };
+    // Flush stale sampling jobs so new sampled execution is processed immediately
+    try {
+      await fetch(`${SERVER_URL}/api/admin/reset/queue`, { method: 'POST' });
+      console.log('[demo/api/agent/run] queue flushed');
+    } catch {
+      console.log('[demo/api/agent/run] queue flush skipped');
+    }
 
-      const res = await fetch(`${SERVER_URL}/api/traces`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(semanticSummary),
-      });
+    for (let i = 0; i < count; i++) {
+      console.log(`[demo/api/agent/run] iteration ${i + 1}/${count}`);
+      const backendResult = await runWithCapture(body.index);
+      if (!backendResult) continue;
 
-      if (res.ok) {
-        const data = await res.json();
-        console.log(`[demo/api/agent/run] 📥 Hallucination incident created: incidentId=${data.incident_id}`);
+      if (backendResult.sampled) {
+        console.log(`[demo/api/agent/run] SAMPLED iteration ${i + 1}: executionId=${backendResult.execution_id}`);
         return NextResponse.json({
           success: true,
-          trace,
-          incidentId: data.incident_id ?? null,
-          isHealthy: false,
+          incidentId: null,
+          sampled: true,
+          executionId: backendResult.execution_id,
         });
       }
+
+      if (backendResult.incident_id) {
+        return NextResponse.json({
+          success: true,
+          incidentId: backendResult.incident_id,
+          sampled: false,
+          executionId: backendResult.execution_id ?? null,
+        });
+      }
+
+      // healthy + not sampled → try next iteration
     }
 
-    console.log(`[demo/api/agent/run] 📤 Forwarding trace summary to ${SERVER_URL}/api/traces`);
-    const res = await fetch(`${SERVER_URL}/api/traces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(summary),
-    });
-
-    if (!res.ok) {
-      console.error(`[demo/api/agent/run] ❌ Server returned error status ${res.status}`);
-      return NextResponse.json({ success: false, error: `Server error ${res.status}` }, { status: 502 });
-    }
-
-    const data = await res.json();
-    console.log(`[demo/api/agent/run] 📥 Server response received: status=${data.status} incidentId=${data.incident_id ?? 'none'}`);
-
-    // ponytail: for flagged traces (wrong tool, etc.) that pass the risk engine
-    // as healthy, return an inline report so the demo still shows a result
-    if (trace.flaggedForSemantic && data.status === 'healthy') {
-      return NextResponse.json({
-        success: true,
-        trace,
-        report: {
-          incident: `${trace.storyChapter.title}`,
-          severity: 'warning' as const,
-          confidence: 78,
-          evidence: [
-            `Prompt requested: "${trace.prompt}"`,
-            `Executed tools: ${trace.toolCalls.join(', ') || 'none'}`,
-            'Trace flagged for semantic evaluation — deterministic policies did not fire',
-          ],
-          timeline: [],
-          recommendation: 'Review the trace and consider whether the executed tools match the user\'s intent.',
-          analysisCategory: 'semantic' as const,
-          analysisSource: 'local_heuristic' as const,
-          samplingInfo: 'Flagged for semantic sampling',
-          disclaimer: 'Deterministic engine: HEALTHY. Semantic evaluation recommended.',
-        },
-        incidentId: null,
-        isHealthy: false,
-      });
-    }
-
+    // All iterations healthy + not sampled
     return NextResponse.json({
       success: true,
-      trace,
-      incidentId: data.incident_id ?? null,
-      isHealthy: data.status === 'healthy',
+      incidentId: null,
+      sampled: false,
+      executionId: null,
     });
   } catch (error) {
+    console.error('[demo/api/agent/run] Error:', error);
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : String(error) },
+      { success: false },
       { status: 500 },
     );
   }
