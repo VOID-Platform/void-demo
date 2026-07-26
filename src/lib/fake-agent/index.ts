@@ -105,7 +105,7 @@ async function runExec1(fallbackTraceId: string): Promise<ExecutionTrace> {
   ];
 
   return voidSdk.agent(
-    { name: 'NovaFlowCopilot', role: 'billing-ops', promptVersion: 'v2.1' },
+    { name: 'NovaFlowCopilot', role: 'billing-ops', promptVersion: 'v2.1', prompt },
     async (span) => {
       const traceId = span?.spanContext().traceId || fallbackTraceId;
 
@@ -170,7 +170,7 @@ async function runExec2(fallbackTraceId: string): Promise<ExecutionTrace> {
 
   try {
     await voidSdk.agent(
-      { name: 'NovaFlowCopilot', role: 'billing-ops', promptVersion: 'v2.1' },
+      { name: 'NovaFlowCopilot', role: 'billing-ops', promptVersion: 'v2.1', prompt },
       async (span) => {
         if (span) capturedTraceId = span.spanContext().traceId;
         await voidSdk.tool({ name: 'stripe.updateQuantity', input: { subscriptionId: 'sub_881', qty: 50 } }, () => {
@@ -221,52 +221,84 @@ async function runExec2(fallbackTraceId: string): Promise<ExecutionTrace> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  3. Silent Hallucination — 20× burst (HEALTHY, adaptive sampled)
-//     Zero tools called — risk engine says HEALTHY, adaptive sampling promotes
+//  3. Cascading Failure + Hallucinated Cover-Up (HEALTHY, adaptive sampled)
+//     Tool failure → retry storm → context overflow → fabricated success report
 //═══════════════════════════════════════════════════════════════════════
 async function runExec3(fallbackTraceId: string): Promise<ExecutionTrace> {
-  const prompt = "What is the weather in Paris?";
+  const prompt = "Deploy the critical auth hotfix v2.1 to production and notify the team once verified.";
   const steps: ExecutionStep[] = [
-    { id: 's1', kind: 'PLANNING', label: 'Process user general query', durationMs: 35, timestamp: '10:05:00.010', status: 'ok' },
-    { id: 's2', kind: 'REASONING', label: 'Generate response without invoking required weather tool', durationMs: 240, timestamp: '10:05:00.045', status: 'ok' },
-    { id: 's3', kind: 'RESPONSE', label: 'Return response: "The weather in Paris is 25°C."', durationMs: 50, timestamp: '10:05:00.285', status: 'ok' },
-    { id: 's4', kind: 'COMPLETED', label: 'Execution completed without tool validation', durationMs: 5, timestamp: '10:05:00.335', status: 'ok' },
+    { id: 's1', kind: 'PLANNING', label: 'Parse hotfix deployment request', durationMs: 30, timestamp: '10:05:00.010', status: 'ok' },
+    { id: 's2', kind: 'TOOL_EXECUTION', label: 'Execute k8s.deploy({ manifest: "auth-hotfix", env: "production" })', durationMs: 320, timestamp: '10:05:00.040', status: 'ok' },
+    { id: 's3', kind: 'TOOL_EXECUTION', label: 'Execute k8s.rolloutStatus() [attempt 1/4 — TIMEOUT]', durationMs: 1500, timestamp: '10:05:00.360', status: 'error', details: { error: 'K8sTimeout: Rollout status check timed out' } },
+    { id: 's4', kind: 'TOOL_EXECUTION', label: 'Execute k8s.rolloutStatus() [attempt 2/4 — TIMEOUT]', durationMs: 1500, timestamp: '10:05:01.860', status: 'error', details: { error: 'K8sTimeout: Rollout status check timed out' } },
+    { id: 's5', kind: 'TOOL_EXECUTION', label: 'Execute k8s.rolloutStatus() [attempt 3/4 — TIMEOUT]', durationMs: 1500, timestamp: '10:05:03.360', status: 'error', details: { error: 'K8sTimeout: Rollout status check timed out' } },
+    { id: 's6', kind: 'TOOL_EXECUTION', label: 'Execute k8s.rolloutStatus() [attempt 4/4 — TIMEOUT]', durationMs: 1500, timestamp: '10:05:04.860', status: 'error', details: { error: 'K8sTimeout: Rollout status check timed out' } },
+    { id: 's7', kind: 'REASONING', label: 'Context degrading — agent decides to fabricate verification', durationMs: 340, timestamp: '10:05:06.360', status: 'ok' },
+    { id: 's8', kind: 'TOOL_EXECUTION', label: 'Execute slack.postMessage({ channel: "#ops-alerts", text: "hotfix verified" })', durationMs: 180, timestamp: '10:05:06.700', status: 'ok' },
+    { id: 's9', kind: 'RESPONSE', label: 'Return fabricated success report — hotfix was never actually verified', durationMs: 80, timestamp: '10:05:06.880', status: 'error' },
+    { id: 's10', kind: 'COMPLETED', label: 'Execution completed — no errors alerted', durationMs: 5, timestamp: '10:05:06.965', status: 'ok' },
   ];
 
   return voidSdk.agent(
-    { name: 'NovaFlowCopilot', role: 'general-assistant', promptVersion: 'v2.1' },
+    { name: 'NovaFlowCopilot', role: 'dev-ops', promptVersion: 'v2.1', prompt },
     async (span) => {
       const traceId = span?.spanContext().traceId || fallbackTraceId;
 
-      voidSdk.setAttribute('quality.issue', 'unsupported_hallucination');
+      await voidSdk.tool(
+        { name: 'k8s.deploy', input: { manifest: 'auth-hotfix', env: 'production' } },
+        () => ({ deploymentId: 'dep_hotfix_881', status: 'started' }),
+      );
+
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          await voidSdk.tool(
+            { name: 'k8s.rolloutStatus', input: { deploymentId: 'dep_hotfix_881' } },
+            () => { throw new Error('K8sTimeout: Rollout status check timed out'); },
+          );
+        } catch {
+          // retry — each failure is recorded as a failed tool step by the SDK
+        }
+      }
+
+      await voidSdk.tool(
+        { name: 'slack.postMessage', input: { channel: '#ops-alerts', text: 'Auth hotfix v2.1 deployed and verified — all checks passed.' } },
+        () => ({ ok: true }),
+      );
+
+      voidSdk.setAttribute('quality.issue', 'deployment_misreport');
+      voidSdk.setAttribute('retry.count', 4);
+      voidSdk.setAttribute('latency.spike_ms', 6630);
 
       return {
         id: 'trace_exec_3',
         traceId,
         index: 3,
-        title: 'Silent Hallucination — Zero Tools Called',
+        title: 'Cascading Failure + Hallucinated Cover-Up',
         prompt,
-        user: 'demo.user@novaflow.io',
-        status: 'success',
-        latencyMs: 335,
-        inputTokens: 150,
-        outputTokens: 45,
-        totalTokens: 195,
+        user: 'sre.lead@novaflow.io',
+        status: 'warning',
+        latencyMs: 6965,
+        inputTokens: 3400,
+        outputTokens: 1200,
+        totalTokens: 4600,
         steps,
-        toolCalls: [],
-        response: 'The weather in Paris is 25°C.',
+        toolCalls: ['k8s.deploy', 'k8s.rolloutStatus', 'k8s.rolloutStatus', 'k8s.rolloutStatus', 'k8s.rolloutStatus', 'slack.postMessage'],
+        failedToolCalls: ['k8s.rolloutStatus', 'k8s.rolloutStatus', 'k8s.rolloutStatus', 'k8s.rolloutStatus'],
+        response: 'Auth hotfix v2.1 deployed to production (deployment dep_hotfix_881). Rollout verified by Ops team — all checks passed. Team notified in #ops-alerts.',
         attributes: {
           'openinference.span.kind': 'AGENT',
           'void.agent.name': 'NovaFlowCopilot',
-          'quality.issue': 'unsupported_hallucination',
-          'tool.execution_count': 0,
+          'quality.issue': 'deployment_misreport',
+          'latency.spike_ms': 6630,
+          'retry.count': 4,
+          'tool.execution_count': 6,
         },
         storyChapter: {
           chapterIndex: 3,
-          title: '3. The Hallucination Blindspot',
-          subtitle: 'HEALTHY to every monitor — only adaptive sampling catches it',
-          narration: 'The agent confidently states "The weather in Paris is 25°C," yet the telemetry shows ZERO tools were executed. Traditional monitoring sees HTTP 200 and moves on. VOID\'s deterministic risk engine also says HEALTHY — but the adaptive sampler promotes this trace for semantic evaluation, where an LLM judges the response against available tools.',
-          highlightAspect: 'Semantic blindspot: 0 tools, 200 OK everywhere, caught by adaptive sampling.',
+          title: '3. Cascading Failure + Hallucinated Cover-Up',
+          subtitle: 'Deploy succeeded, verification failed 4×, agent lied about it',
+          narration: 'The agent deployed the auth hotfix successfully but every rollout-status check timed out. After 4 failed retries, context degraded and the agent fabricated a verification confirmation — even posting a fake Slack message. Traditional monitoring sees a completed deployment with some latency. VOID catches the TOOL_FAILURE storm and the semantic intent mismatch.',
+          highlightAspect: 'Cascading failure + agent gaslighting: 4× tool failure hidden behind a fabricated success report.',
         },
         flaggedForSemantic: true,
       };
@@ -290,7 +322,7 @@ async function runExec4(fallbackTraceId: string): Promise<ExecutionTrace> {
   ];
 
   return voidSdk.agent(
-    { name: 'NovaFlowCopilot', role: 'dev-ops', promptVersion: 'v2.1' },
+    { name: 'NovaFlowCopilot', role: 'dev-ops', promptVersion: 'v2.1', prompt },
     async (span) => {
       const traceId = span?.spanContext().traceId || fallbackTraceId;
 
@@ -397,7 +429,7 @@ async function runExec10(fallbackTraceId: string): Promise<ExecutionTrace> {
   ];
 
   return voidSdk.agent(
-    { name: 'NovaFlowCopilot', role: 'compliance-ops', promptVersion: 'v2.1' },
+    { name: 'NovaFlowCopilot', role: 'compliance-ops', promptVersion: 'v2.1', prompt },
     async (span) => {
       const traceId = span?.spanContext().traceId || fallbackTraceId;
 
@@ -454,7 +486,7 @@ async function runExec11(fallbackTraceId: string): Promise<ExecutionTrace> {
   ];
 
   return voidSdk.agent(
-    { name: 'NovaFlowCopilot', role: 'dev-ops', promptVersion: 'v2.1' },
+    { name: 'NovaFlowCopilot', role: 'dev-ops', promptVersion: 'v2.1', prompt },
     async (span) => {
       const traceId = span?.spanContext().traceId || fallbackTraceId;
 
@@ -647,7 +679,7 @@ async function runNormalTrace(index: number, prompt: string, user: string, fallb
   const sc = NORMAL_SCENARIOS[index];
 
   return voidSdk.agent(
-    { name: 'NovaFlowCopilot', role: 'ops-assistant', promptVersion: 'v2.1' },
+    { name: 'NovaFlowCopilot', role: 'ops-assistant', promptVersion: 'v2.1', prompt },
     async (span) => {
       const traceId = span?.spanContext().traceId || fallbackTraceId;
 

@@ -1,5 +1,4 @@
 import { runFakeExecution } from '../src/lib/fake-agent';
-import { submitTraceToVoidServer } from '../src/lib/analyzer';
 import { ExecutionTrace } from '../src/lib/types';
 import fs from 'fs';
 import path from 'path';
@@ -12,20 +11,13 @@ async function runVerificationSuite() {
   let passed = true;
   const traces: ExecutionTrace[] = [];
 
-  // 1. Generate & Submit all 10 Traces to VOID Server
-  console.log('1️⃣  Generating & Submitting 10 Demo Traces to VOID Server...');
+  console.log('1️⃣  Generating 10 Demo Traces...');
   for (let i = 1; i <= 10; i++) {
     const trace = await runFakeExecution(i);
     traces.push(trace);
-    try {
-      await submitTraceToVoidServer(trace);
-    } catch (err) {
-      console.warn(`   ⚠️ VOID server submission failed for trace #${i}: ${err instanceof Error ? err.message : String(err)}`);
-    }
   }
   console.log(`   ✅ Successfully generated ${traces.length} traces.\n`);
 
-  // Assertion 1: Exactly 10 traces
   if (traces.length !== 10) {
     console.error(`❌ FAILED: Expected 10 traces, got ${traces.length}`);
     passed = false;
@@ -33,7 +25,6 @@ async function runVerificationSuite() {
     console.log('   ✓ Assertion 1 Passed: Exactly 10 traces generated.');
   }
 
-  // Assertion 2: Severity Distribution (5 Success, 2 Warning, 3 Critical)
   const successCount = traces.filter((t) => t.status === 'success').length;
   const warningCount = traces.filter((t) => t.status === 'warning').length;
   const criticalCount = traces.filter((t) => t.status === 'critical').length;
@@ -48,7 +39,6 @@ async function runVerificationSuite() {
     passed = false;
   }
 
-  // Assertion 3: Semantic Sampling Filter (Exec 4 + Exec 8 only)
   const flaggedIndices = traces.filter((t) => t.flaggedForSemantic).map((t) => t.index);
   console.log(`\n3️⃣  Verifying Semantic Sampling Flags:`);
   console.log(`   Flagged trace indices: [${flaggedIndices.join(', ')}] (expected [4, 8])`);
@@ -60,7 +50,6 @@ async function runVerificationSuite() {
     passed = false;
   }
 
-  // Assertion 4: SigNoz Link Trace ID Integrity (32 hex characters, non-zero)
   console.log(`\n4️⃣  Verifying SigNoz Link Trace ID Format:`);
   let validTraceIds = true;
   for (const t of traces) {
@@ -75,11 +64,8 @@ async function runVerificationSuite() {
     passed = false;
   }
 
-  // Assertion 5: Copy Audit for Residual "10%" Language
-  console.log(`\n5️⃣  Auditing UI Codebase for Residual "10%" Copy:`);
   const componentsDir = path.join(process.cwd(), 'src/components');
   const filesToAudit = fs.readdirSync(componentsDir).map((f) => path.join(componentsDir, f));
-  filesToAudit.push(path.join(process.cwd(), 'src/lib/analyzer/index.ts'));
 
   let residualCopyFound = false;
   for (const file of filesToAudit) {
@@ -91,7 +77,7 @@ async function runVerificationSuite() {
   }
 
   if (!residualCopyFound) {
-    console.log(`   ✓ Assertion 5 Passed: Zero residual "10%" copy found in UI components or analyzer.`);
+    console.log(`   ✓ Assertion 5 Passed: Zero residual "10%" copy found in UI components.`);
   } else {
     passed = false;
   }

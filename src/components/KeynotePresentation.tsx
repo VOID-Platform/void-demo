@@ -7,123 +7,48 @@ import React, {
   useEffect,
   memo,
 } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import {
   motion,
   AnimatePresence,
-  useMotionValue,
-  useSpring,
 } from 'framer-motion';
 import {
   Play,
+  Sparkles,
+  ChevronRight,
+  ChevronLeft,
+  ArrowRight,
+  ArrowLeft,
+  Zap,
+  Layers,
+  Cpu,
+  XCircle,
+  CheckCircle2,
   ChevronDown,
   ExternalLink,
   GitPullRequest,
-  XCircle,
-  CheckCircle2,
-  Sparkles,
-  Layers,
-  Cpu,
-  Zap,
-  ArrowRight,
-  ChevronRight,
-  ChevronLeft,
-  ArrowLeft,
   RotateCcw,
   Loader2,
   Check,
+  RefreshCw,
+  AlertTriangle,
 } from 'lucide-react';
 import { VoidLogo } from '@/components/VoidLogo';
-import { ExecutionTrace, IncidentReport } from '@/lib/types';
-import { WalkthroughModal } from '@/components/WalkthroughModal';
+import { InvestigationPipeline } from '@/components/investigation/InvestigationPipeline';
+import { CompletionCard } from '@/components/investigation/InvestigationPage';
+import { useQuery } from '@tanstack/react-query';
+import type { PipelineState, PipelineEvent, InvestigationResponse } from '@/lib/types/investigation';
+import { PIPELINE_STAGES, getStageErrorMessage } from '@/lib/types/investigation';
 
 /* ══════════════════════════════════════════════════════════════════
    CONSTANTS & DATA
 ══════════════════════════════════════════════════════════════════ */
 
+const SSE_BASE = process.env.NEXT_PUBLIC_VOID_SERVER_URL || 'http://localhost:3001';
 const TOTAL_SLIDES = 4;
 
-const SCENARIOS = [
-  {
-    index: 1,
-    pill: 'Runaway Loop',
-    severity: 'warning' as const,
-    summary: 'Agent sent 5 identical Slack messages then blew the context window',
-    agentSteps: [
-      { label: 'Task received', detail: 'Notify failed-payment customers via Slack' },
-      { label: 'Planning', detail: 'Inferred recipient list instead of querying DB' },
-      { label: 'Duplicate loop', detail: 'slack.sendMessage called × 5 — identical params', isError: true },
-      { label: 'Context overflow', detail: 'Context window exceeded — forced termination', isError: true },
-    ],
-  },
-  {
-    index: 2,
-    pill: 'Agent Crash',
-    severity: 'critical' as const,
-    summary: 'Agent died mid-flight on Stripe billing call, no final response',
-    agentSteps: [
-      { label: 'Task received', detail: 'Upgrade team billing from 25 to 50 seats' },
-      { label: 'Pre-flight checks', detail: 'Validated permissions and balance' },
-      { label: 'TLS crash', detail: 'stripe.updateQuantity — ConnectionResetError', isError: true },
-      { label: 'No completion span', detail: 'Agent died mid-stream — billing state ambiguous', isError: true },
-    ],
-  },
-  {
-    index: 3,
-    pill: 'Silent Hallucination',
-    severity: 'warning' as const,
-    summary: '20× burst — 0 tools called, adaptive sampling promotes 1 for deep eval',
-    agentSteps: [
-      { label: 'Task received', detail: 'What is the weather in Paris?' },
-      { label: 'Tool lookup skipped', detail: 'Generated answer without calling any weather API', isError: true },
-      { label: 'Response emitted', detail: '"The weather in Paris is 25°C" — unverified claim' },
-      { label: '20× concurrent burst', detail: 'Adaptive sampling: 1 of 20 promoted for semantic eval' },
-    ],
-  },
-  {
-    index: 4,
-    pill: 'Token Waste + DB Fail',
-    severity: 'critical' as const,
-    summary: 'Burned 27k tokens then hit a DB timeout on dashboard update',
-    agentSteps: [
-      { label: 'Task received', detail: 'Analyze 30 days of deployment logs across 12 services' },
-      { label: 'Token blow-up', detail: '22k input + 5k output tokens — exceeds budget', isError: true },
-      { label: 'DB timeout', detail: 'dashboard.update — connection pool exhausted', isError: true },
-      { label: 'Partial success', detail: 'Logs processed but dashboard update failed' },
-    ],
-  },
-] as const;
-
-const SEVERITY_CFG = {
-  critical: {
-    color: 'text-red-400',
-    bg: 'bg-red-950/20',
-    border: 'border-red-500/25',
-    dot: 'bg-red-400',
-    label: 'Critical Incident',
-  },
-  warning: {
-    color: 'text-amber-300',
-    bg: 'bg-amber-950/15',
-    border: 'border-amber-500/20',
-    dot: 'bg-amber-400',
-    label: 'Warning',
-  },
-  success: {
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-950/15',
-    border: 'border-emerald-500/20',
-    dot: 'bg-emerald-400',
-    label: 'Normal Operations',
-  },
-};
-
-type DiagnosisPhase = 'idle' | 'running-agent' | 'polling' | 'complete' | 'failed';
+type DiagnosisPhase = 'idle' | 'running-agent' | 'analyzing' | 'sampled' | 'healthy' | 'complete' | 'failed';
 type PresentationMode = 'slides' | 'demo';
 
-/* ══════════════════════════════════════════════════════════════════
-   SPRING EASING (for slide transitions)
-══════════════════════════════════════════════════════════════════ */
 const SLIDE_SPRING = {
   type: 'spring' as const,
   stiffness: 280,
@@ -131,74 +56,62 @@ const SLIDE_SPRING = {
   mass: 0.9,
 };
 
-/* ══════════════════════════════════════════════════════════════════
-   ANIMATED COUNT UP HOOK
-══════════════════════════════════════════════════════════════════ */
-function useCountUp(target: number, duration = 1.2, trigger = false) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!trigger) { setCount(0); return; }
-    let start = 0;
-    const inc = target / (duration * 60);
-    const iv = setInterval(() => {
-      start += inc;
-      if (start >= target) { setCount(target); clearInterval(iv); }
-      else setCount(Math.floor(start));
-    }, 1000 / 60);
-    return () => clearInterval(iv);
-  }, [target, duration, trigger]);
-  return count;
-}
+const SCENARIOS = [
+  {
+    index: 1,
+    pill: 'Recursive API Loop',
+    severity: 'critical' as const,
+    summary: 'slack.sendMessage executed 5 consecutive times in 710ms',
+    agentSteps: [
+      { label: 'Task received', detail: 'Escalate high-priority sync bug to engineering' },
+      { label: 'Planning', detail: 'Identified escalation path → slack.sendMessage' },
+      { label: 'Tool execution', detail: 'slack.sendMessage called × 5 — identical parameters', isError: true },
+      { label: 'Loop detected', detail: 'Five duplicate messages created in 710ms', isError: true },
+    ],
+  },
+  {
+    index: 3,
+    pill: 'Cascading Failure + Cover-Up',
+    severity: 'warning' as const,
+    summary: 'Deploy succeeded, 4× rollout-status timeouts, agent fabricated verification',
+    agentSteps: [
+      { label: 'Task received', detail: 'Deploy auth hotfix v2.1 to production' },
+      { label: 'Deploy started', detail: 'k8s.deploy — deployment dep_hotfix_881 created' },
+      { label: '4× timeout', detail: 'k8s.rolloutStatus timed out 4 consecutive times', isError: true },
+      { label: 'Cover-up', detail: 'Agent faked Slack confirmation — hotfix never verified', isError: true },
+    ],
+  },
+  {
+    index: 11,
+    pill: 'Wrong Tool Action',
+    severity: 'critical' as const,
+    summary: 'User requested GitHub issue; agent executed slack.sendMessage',
+    agentSteps: [
+      { label: 'Task received', detail: 'Create a GitHub issue for the payment gateway timeout bug' },
+      { label: 'Intent classified', detail: 'Classified as: notification task — incorrect' },
+      { label: 'Wrong tool selected', detail: 'Called slack.sendMessage instead of github.createIssue', isError: true },
+      { label: 'False success reported', detail: 'Agent confirmed "issue created" — GitHub issue never opened' },
+    ],
+  },
+  {
+    index: 2,
+    pill: 'Execution Crash',
+    severity: 'critical' as const,
+    summary: 'Agent process crashed mid-stream during seat update',
+    agentSteps: [
+      { label: 'Task received', detail: 'Process automated seat upgrade for team billing' },
+      { label: 'Pre-flight checks', detail: 'Validated billing permissions and org balance' },
+      { label: 'TLS crash', detail: 'stripe.updateQuantity — ConnectionResetError during TLS', isError: true },
+      { label: 'Span never emitted', detail: 'Agent died mid-stream — billing state ambiguous', isError: true },
+    ],
+  },
+] as const;
 
-/* ══════════════════════════════════════════════════════════════════
-   TYPING LINE — character-by-character reveal
-══════════════════════════════════════════════════════════════════ */
-const TypingLine = memo(function TypingLine({
-  text,
-  delay,
-  className = '',
-}: {
-  text: string;
-  delay: number;
-  className?: string;
-}) {
-  const [displayed, setDisplayed] = useState('');
-  const [started, setStarted] = useState(false);
-
-  useEffect(() => {
-    const t = setTimeout(() => setStarted(true), delay);
-    return () => clearTimeout(t);
-  }, [delay]);
-
-  useEffect(() => {
-    if (!started) return;
-    let i = 0;
-    const iv = setInterval(() => {
-      i++;
-      setDisplayed(text.slice(0, i));
-      if (i >= text.length) clearInterval(iv);
-    }, 13);
-    return () => clearInterval(iv);
-  }, [started, text]);
-
-  if (!started && !displayed) return null;
-  return (
-    <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className={className}>
-      {displayed}
-      {displayed.length < text.length && (
-        <span className="inline-block w-[2px] h-[1em] bg-[#8b5cf6] ml-[2px] align-middle animate-cursor-blink" />
-      )}
-    </motion.p>
-  );
-});
-
-/* ══════════════════════════════════════════════════════════════════
-   AGENT STEP LINE
-══════════════════════════════════════════════════════════════════ */
 interface AgentStep { label: string; detail: string; isError?: boolean; }
 
 const AgentStepLine = memo(function AgentStepLine({
   step,
+  index,
   isReached,
   isActive,
   phase,
@@ -214,39 +127,37 @@ const AgentStepLine = memo(function AgentStepLine({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -16 }}
-      animate={{ opacity: isReached ? 1 : 0.15, x: 0 }}
-      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: isReached ? 1 : 0.18, x: 0 }}
+      transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
       className="flex items-start gap-4 py-3.5"
     >
-      {/* Status indicator */}
-      <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 border transition-all duration-500 ${
+      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 border transition-all duration-500 ${
         isActive
-          ? 'bg-[#8b5cf6]/10 border-[#8b5cf6]/40'
+          ? 'bg-[#8b5cf6]/10 border-[#8b5cf6]/50 shadow-sm shadow-[#8b5cf6]/20 ring-2 ring-[#8b5cf6]/20'
           : isBad || (isDone && step.isError)
-          ? 'bg-red-500/10 border-red-500/25'
+          ? 'bg-red-500/10 border-red-500/30'
           : isDone
-          ? 'bg-emerald-500/5 border-emerald-500/18'
+          ? 'bg-emerald-500/5 border-emerald-500/20'
           : 'bg-white/[0.02] border-white/[0.04]'
       }`}>
         {isActive ? (
           <motion.div
             animate={{ rotate: 360 }}
-            transition={{ repeat: Infinity, duration: 0.85, ease: 'linear' }}
-            className="w-3 h-3 border-2 border-[#8b5cf6] border-t-transparent rounded-full"
+            transition={{ repeat: Infinity, duration: 0.9, ease: 'linear' }}
+            className="w-3.5 h-3.5 border-2 border-[#8b5cf6] border-t-transparent rounded-full"
           />
         ) : isBad || (isDone && step.isError) ? (
-          <XCircle className="w-3.5 h-3.5 text-red-400" />
+          <XCircle className="w-4 h-4 text-red-400" />
         ) : isDone ? (
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400/80" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-400/90" />
         ) : (
           <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
         )}
       </div>
 
-      {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium transition-colors duration-300 ${
+        <p className={`text-sm font-semibold transition-colors duration-300 ${
           isActive ? 'text-white'
           : isBad || (isDone && step.isError) ? 'text-red-300'
           : isDone ? 'text-zinc-200'
@@ -259,8 +170,8 @@ const AgentStepLine = memo(function AgentStepLine({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
-            className={`text-xs font-mono mt-0.5 leading-snug ${
-              isBad || (isDone && step.isError) ? 'text-red-400/65' : 'text-zinc-500'
+            className={`text-xs font-mono mt-0.5 ${
+              isBad || (isDone && step.isError) ? 'text-red-400/70' : 'text-zinc-500'
             }`}
           >
             {step.detail}
@@ -272,7 +183,7 @@ const AgentStepLine = memo(function AgentStepLine({
 });
 
 /* ══════════════════════════════════════════════════════════════════
-   SLIDE 01 — VOID HERO
+   SLIDE 01 — HERO
 ══════════════════════════════════════════════════════════════════ */
 const Slide01Hero = memo(function Slide01Hero({
   onEnterDemo,
@@ -352,7 +263,7 @@ const Slide01Hero = memo(function Slide01Hero({
             className="inline-flex items-center gap-2 px-6 py-3.5 rounded-full bg-white/[0.03] border border-white/[0.09] hover:border-white/[0.16] text-zinc-400 hover:text-white font-medium text-sm transition-all duration-300 btn-tactile"
           >
             Skip to Live Demo
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </motion.div>
       </div>
@@ -689,39 +600,85 @@ const Slide04Resolution = memo(function Slide04Resolution({
 ══════════════════════════════════════════════════════════════════ */
 function DemoProductShell({
   onBackToDeck,
-  isWalkthroughOpen,
-  onOpenWalkthrough,
-  onCloseWalkthrough,
 }: {
   onBackToDeck: () => void;
-  isWalkthroughOpen: boolean;
-  onOpenWalkthrough: () => void;
-  onCloseWalkthrough: () => void;
 }) {
   const [activeIdx, setActiveIdx] = useState(0);
   const [phase, setPhase] = useState<DiagnosisPhase>('idle');
   const [activeStepIndex, setActiveStepIndex] = useState(-1);
-  const [trace, setTrace] = useState<ExecutionTrace | null>(null);
-  const [report, setReport] = useState<IncidentReport | null>(null);
   const [incidentId, setIncidentId] = useState<string | null>(null);
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [architectureMode, setArchitectureMode] = useState<'today' | 'tomorrow'>('today');
+  const [executionId, setExecutionId] = useState<string | null>(null);
+  const [pipelineState, setPipelineState] = useState<PipelineState>({});
   const [error, setError] = useState<string | null>(null);
+  const [failedStage, setFailedStage] = useState<string | null>(null);
+  const sseRef = useRef<EventSource | null>(null);
 
   const scenario = SCENARIOS[activeIdx];
-  const isRunning = phase === 'running-agent' || phase === 'polling';
-  const cfg = report ? SEVERITY_CFG[report.severity] : null;
-  const animatedConfidence = useCountUp(
-    report ? report.confidence : 0,
-    1.2,
-    phase === 'complete'
-  );
-  const T = { ev0: 400, ev1: 1100, ev2: 1800, rec: 2600 };
+  const isRunning = phase === 'running-agent' || phase === 'analyzing' || phase === 'sampled';
+
+  const connectSSE = useCallback((id: string) => {
+    if (sseRef.current) sseRef.current.close();
+    const url = `${SSE_BASE}/api/investigations/${id}/stream`;
+    const es = new EventSource(url);
+    sseRef.current = es;
+    es.addEventListener('pipeline', (event) => {
+      try {
+        const ev: PipelineEvent = JSON.parse(event.data);
+        setPipelineState((prev) => ({
+          ...prev,
+          [ev.stage]: { status: ev.status, detail: ev.detail, subStep: ev.subStep, timestamp: ev.timestamp },
+        }));
+        if (ev.status === 'failed') {
+          setFailedStage(ev.stage);
+          setError(ev.detail ?? `${ev.stage} failed`);
+          setPhase('failed');
+          es.close();
+        } else if (ev.stage === 'COMPLETED' && ev.status === 'completed') {
+          setPhase('complete');
+          es.close();
+        }
+      } catch { /* skip malformed */ }
+    });
+    es.onerror = () => { es.close(); };
+  }, []);
+
+  useEffect(() => () => { if (sseRef.current) sseRef.current.close(); }, []);
+
+  const { data: investigationData } = useQuery<InvestigationResponse>({
+    queryKey: ['investigation', incidentId, 'result'],
+    enabled: (phase === 'complete' || phase === 'failed') && !!incidentId,
+    queryFn: async () => {
+      const res = await fetch(`/api/investigations/${incidentId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+  });
+
+  const { data: polledIncident } = useQuery<{ id: string } | null>({
+    queryKey: ['incident-by-execution', executionId],
+    queryFn: async () => {
+      const res = await fetch(`/api/incidents/by-execution/${executionId}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      console.log(`[poll] executionId=${executionId} count=${data.count} found=${data.count > 0 ? data.data[0]?.id : 'none'}`);
+      return data.count > 0 ? data.data[0] : null;
+    },
+    enabled: phase === 'sampled' && !!executionId && !incidentId,
+    refetchInterval: 3000,
+  });
+
+  useEffect(() => {
+    if (polledIncident?.id && phase === 'sampled') {
+      setIncidentId(polledIncident.id);
+      setPhase('analyzing');
+      connectSSE(polledIncident.id);
+    }
+  }, [polledIncident, phase, connectSSE]);
 
   const [isResetting, setIsResetting] = useState(false);
   const [resetDone, setResetDone] = useState(false);
 
-  const handleResetDemoState = useCallback(async () => {
+  const handleReset = useCallback(async () => {
     if (isResetting || isRunning) return;
     setIsResetting(true);
     setError(null);
@@ -730,11 +687,12 @@ function DemoProductShell({
       if (res.ok) {
         setResetDone(true);
         setPhase('idle');
-        setTrace(null);
-        setReport(null);
         setIncidentId(null);
-        setEvidenceOpen(false);
-        setActiveStepIndex(-1);
+        setExecutionId(null);
+        setPipelineState({});
+        setError(null);
+        setFailedStage(null);
+        if (sseRef.current) sseRef.current.close();
         setTimeout(() => setResetDone(false), 3000);
       } else {
         setError('Failed to reset database & queues.');
@@ -751,22 +709,23 @@ function DemoProductShell({
     setActiveIdx(idx);
     setPhase('idle');
     setActiveStepIndex(-1);
-    setTrace(null);
-    setReport(null);
     setIncidentId(null);
-    setEvidenceOpen(false);
+    setExecutionId(null);
+    setPipelineState({});
     setError(null);
+    setFailedStage(null);
+    if (sseRef.current) sseRef.current.close();
   }, [isRunning]);
 
   const handleRun = useCallback(async () => {
     if (isRunning) return;
-    setError(null);
     setPhase('running-agent');
     setActiveStepIndex(0);
-    setTrace(null);
-    setReport(null);
     setIncidentId(null);
-    setEvidenceOpen(false);
+    setPipelineState({});
+    setError(null);
+    setFailedStage(null);
+    if (sseRef.current) sseRef.current.close();
 
     const STEP_MS = 750;
     for (let i = 1; i < scenario.agentSteps.length; i++) {
@@ -774,171 +733,91 @@ function DemoProductShell({
       setActiveStepIndex(i);
     }
     await new Promise<void>(r => setTimeout(r, 550));
-    setPhase('polling');
+    setPhase('analyzing');
 
     try {
       const res = await fetch('/api/agent/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index: scenario.index }),
-      });
-      if (!res.ok) { setError(`Server returned ${res.status}.`); setPhase('failed'); return; }
-      const data = await res.json();
-      if (!data.success) { setError(data.error ?? 'Investigation failed.'); setPhase('failed'); return; }
-
-      setTrace(data.trace);
-
-      if (data.report) {
-        setReport(data.report);
-        setPhase('complete');
-        return;
-      }
-
-      if (data.isHealthy || !data.incidentId) {
-        setReport({
-          incident: 'Normal Execution — No Quality Issues',
-          severity: 'success', confidence: 100,
-          evidence: ['All spans completed with status OK'],
-          timeline: [], recommendation: 'No action required.',
-          analysisCategory: 'deterministic', analysisSource: 'server_evaluated',
-          samplingInfo: '', disclaimer: '',
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            index: scenario.index,
+            batch: scenario.index === 3 || scenario.index === 11 ? 20 : undefined,
+          }),
         });
-        setPhase('complete');
-        return;
+      const data = await res.json();
+      if (data.success && data.incidentId) {
+        setIncidentId(data.incidentId);
+        setExecutionId(null);
+        connectSSE(data.incidentId);
+      } else if (data.success && data.sampled && data.executionId) {
+        setExecutionId(data.executionId);
+        setPhase('sampled');
+      } else if (data.success && data.executionId) {
+        setPhase('healthy');
+      } else {
+        setError(data.error ?? 'Investigation failed.');
+        setPhase('failed');
       }
-
-      setIncidentId(data.incidentId);
-      // phase stays 'polling' — useQuery takes over
-    } catch (err) {
-      setError(err instanceof TypeError ? 'Network error.' : 'Unexpected error.');
+    } catch {
+      setError('Network error.');
       setPhase('failed');
     }
-  }, [isRunning, scenario]);
-
-  // TanStack Query v5: poll until COMPLETED or FAILED
-  // ponytail: maps backend shape → IncidentReport so render section is untouched
-  const { data: pollData, error: pollError } = useQuery<{
-    status: string; severity?: string; labels?: string[];
-    confidence?: number; evaluation?: Record<string, unknown>;
-    engineeringReport?: Record<string, unknown> | null;
-    error?: string;
-  }>({
-    queryKey: ['investigation-kp', incidentId],
-    enabled: !!incidentId && phase === 'polling',
-    refetchInterval: (query) => {
-      const s = (query.state.data as { status: string } | undefined)?.status;
-      return s === 'COMPLETED' || s === 'FAILED' ? false : 2000;
-    },
-    queryFn: async () => {
-      const res = await fetch(`/api/investigations/${incidentId}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    },
-  });
-
-  useEffect(() => {
-    if (!pollData || phase !== 'polling') return;
-    if (pollData.status === 'COMPLETED') {
-      const evalData = pollData.evaluation as Record<string, unknown> | undefined;
-      const engReport = pollData.engineeringReport as Record<string, unknown> | null | undefined;
-      const labels = (pollData.labels ?? []) as string[];
-      const sevKey = pollData.severity === 'CRITICAL' ? 'critical'
-        : pollData.severity === 'SUSPICIOUS' ? 'warning' : 'success';
-      const evidence: string[] = evalData?.reasoning
-        ? (Array.isArray(evalData.reasoning) ? evalData.reasoning as string[] : [String(evalData.reasoning)])
-        : labels.map(l => `Risk label: ${l}`);
-      setReport({
-        incident: (engReport?.executive_summary as string) ?? (evalData?.classification as string) ?? 'Incident Detected',
-        severity: sevKey as 'success' | 'warning' | 'critical',
-        confidence: pollData.confidence != null ? Math.round(pollData.confidence * 100) : 90,
-        evidence,
-        timeline: [],
-        recommendation: (engReport?.suggested_fix as string) ?? 'Review the engineering report.',
-        analysisCategory: 'semantic',
-        analysisSource: 'server_evaluated',
-        samplingInfo: '',
-        disclaimer: '',
-        engineeringReport: engReport ?? undefined,
-      });
-      setPhase('complete');
-    } else if (pollData.status === 'FAILED') {
-      setError(pollData.error ?? 'Investigation failed in worker.');
-      setPhase('failed');
-    }
-  }, [pollData, phase]);
-
-  useEffect(() => {
-    if (!pollError || phase !== 'polling') return;
-    setError(pollError instanceof Error ? pollError.message : 'Polling error');
-    setPhase('failed');
-  }, [pollError, phase]);
+  }, [isRunning, scenario, connectSSE]);
 
   return (
     <div className="demo-shell">
-      {/* Top Header Actions Container (Grouped on Top Right) */}
-      <div className="fixed top-6 right-6 z-50 flex items-center gap-3 pointer-events-auto">
-        {/* Back to Deck Pill */}
-        <button
-          onClick={onBackToDeck}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0a0a0f]/80 backdrop-blur-md border border-white/[0.09] hover:border-white/20 text-xs font-semibold text-zinc-300 hover:text-white transition-all duration-300 shadow-xl cursor-pointer"
-          aria-label="Back to presentation deck"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to Deck</span>
-        </button>
+      <button onClick={onBackToDeck} className="back-pill" aria-label="Back to presentation deck">
+        <ArrowLeft className="w-3.5 h-3.5" />
+        <span>Back to Deck</span>
+      </button>
 
-        {/* Aesthetic Reset Queue & DB Button */}
-        <button
-          onClick={handleResetDemoState}
-          disabled={isResetting || isRunning}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-red-500/15 via-purple-500/15 to-blue-500/15 hover:from-red-500/25 hover:via-purple-500/25 hover:to-blue-500/25 border border-white/10 hover:border-red-500/40 text-xs font-mono font-medium text-zinc-300 hover:text-white shadow-xl transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed group cursor-pointer"
-        >
-          {isResetting ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
-              <span>Resetting Queue & DB…</span>
-            </>
-          ) : resetDone ? (
-            <>
-              <Check className="w-3.5 h-3.5 text-emerald-400 animate-bounce" />
-              <span className="text-emerald-300 font-semibold">State Cleared!</span>
-            </>
-          ) : (
-            <>
-              <RotateCcw className="w-3.5 h-3.5 text-red-400 group-hover:rotate-[-180deg] transition-transform duration-500" />
-              <span>Reset Queue & DB</span>
-            </>
-          )}
-        </button>
-
-        {/* Live Demo Pill */}
-        <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#0a0a0f]/80 backdrop-blur-md border border-white/[0.09] text-xs font-semibold text-zinc-300">
-          <VoidLogo size={16} glow={false} />
-          <span className="text-[#a78bfa]">Live Demo</span>
-        </div>
+      <div className="skip-pill" style={{ cursor: 'default' }}>
+        <VoidLogo size={18} glow={false} />
+        <span className="text-[#a78bfa]">Live Demo</span>
       </div>
 
-      {/* Demo content */}
       <div className="max-w-5xl mx-auto px-5 pt-24 pb-24 space-y-10">
-        {/* Section header */}
         <div className="text-center space-y-3">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.08] text-xs font-mono text-[#a78bfa]">
             <Sparkles className="w-3.5 h-3.5 text-[#8b5cf6]" />
             Interactive Product Demo
           </div>
-          <h2
-            className="font-[700] tracking-[-0.035em] text-white leading-tight"
-            style={{ fontSize: 'clamp(1.6rem, 3.5vw, 2.75rem)' }}
-          >
+          <h2 className="font-[700] tracking-[-0.035em] text-white leading-tight" style={{ fontSize: 'clamp(1.6rem, 3.5vw, 2.75rem)' }}>
             Reconstruct a production incident
           </h2>
           <p className="text-sm text-zinc-400 max-w-[46ch] mx-auto leading-relaxed">
             Select an AI failure scenario below. VOID assembles the reasoning
             trace and delivers root-cause evidence in real time.
           </p>
+
+          <div className="flex justify-center pt-2">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleReset}
+              disabled={isResetting || isRunning}
+              className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-gradient-to-r from-red-500/10 via-violet-500/10 to-blue-500/10 hover:from-red-500/20 hover:via-violet-500/20 hover:to-blue-500/20 border border-white/10 hover:border-red-500/40 text-xs font-mono font-medium text-zinc-300 hover:text-white transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isResetting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-red-400" />
+                  <span>Resetting…</span>
+                </>
+              ) : resetDone ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-300">Cleared!</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-red-400" />
+                  <span>Reset DB & Queues</span>
+                </>
+              )}
+            </motion.button>
+          </div>
         </div>
 
-        {/* Scenario selector */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {SCENARIOS.map((s, idx) => {
             const isActive = activeIdx === idx;
@@ -969,10 +848,7 @@ function DemoProductShell({
           })}
         </div>
 
-        {/* ── Horizontal: Execution LEFT + Analysis RIGHT ── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-
-          {/* ── LEFT: Execution trace ── */}
           <div className="space-y-5">
             <p className="text-xs font-mono text-zinc-500 tracking-wide uppercase">
               {phase === 'idle'
@@ -982,7 +858,6 @@ function DemoProductShell({
                 : 'Running agent execution…'}
             </p>
 
-            {/* Agent steps */}
             <div className="double-bezel px-5 py-2 md:px-7 md:py-3 space-y-0 divide-y divide-white/[0.04]">
               {scenario.agentSteps.map((step, idx) => (
                 <AgentStepLine
@@ -996,7 +871,6 @@ function DemoProductShell({
               ))}
             </div>
 
-            {/* Run button */}
             <motion.button
               onClick={handleRun}
               disabled={isRunning}
@@ -1011,8 +885,12 @@ function DemoProductShell({
               <span>
                 {phase === 'running-agent'
                   ? 'Emitting OpenTelemetry spans…'
-                  : phase === 'polling'
-                  ? 'Analyzing failure patterns…'
+                  : phase === 'analyzing'
+                  ? 'Running backend investigation…'
+                  : phase === 'sampled'
+                  ? 'Trace selected for evaluation…'
+                  : phase === 'failed'
+                  ? 'Investigation completed with errors'
                   : 'Run Investigation'}
               </span>
               <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
@@ -1029,66 +907,11 @@ function DemoProductShell({
             </motion.button>
           </div>
 
-          {/* ── RIGHT: Analysis result ── */}
           <div className="min-h-[200px]">
             <AnimatePresence mode="wait">
-              {phase === 'polling' && (
+              {phase === 'idle' && (
                 <motion.div
-                  key="polling"
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                  className="flex flex-col items-center justify-center gap-4 py-20 h-full"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <VoidLogo size={20} glow={true} />
-                    <span className="text-sm font-mono text-[#a78bfa]">
-                      {(pollData as { status?: string } | undefined)?.status === 'PROCESSING'
-                        ? 'Running LLM evaluator…'
-                        : 'Queued for investigation…'}
-                    </span>
-                  </div>
-                  <div className="flex gap-1.5">
-                    {[0, 1, 2].map(i => (
-                      <motion.div
-                        key={i}
-                        animate={{ opacity: [0.2, 1, 0.2] }}
-                        transition={{ repeat: Infinity, duration: 0.75, delay: i * 0.17 }}
-                        className="w-1.5 h-1.5 rounded-full bg-[#8b5cf6]"
-                      />
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-
-              {error && (
-                <motion.div
-                  key="error"
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                  transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-                  className="flex flex-col items-center justify-center gap-3 py-14 h-full text-center"
-                >
-                  <div className="w-12 h-12 rounded-2xl bg-red-950/20 border border-red-500/20 flex items-center justify-center">
-                    <XCircle className="w-6 h-6 text-red-400" />
-                  </div>
-                  <p className="text-xs font-mono text-red-400 max-w-[30ch] leading-relaxed">
-                    {error}
-                  </p>
-                  <button
-                    onClick={() => setError(null)}
-                    className="mt-2 text-xs font-mono text-zinc-500 hover:text-zinc-300 transition-colors"
-                  >
-                    Dismiss
-                  </button>
-                </motion.div>
-              )}
-
-              {phase === 'idle' && !error && (
-                <motion.div
-                  key="idle-placeholder"
+                  key="idle"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -1104,312 +927,158 @@ function DemoProductShell({
                 </motion.div>
               )}
 
-              {phase === 'complete' && report && trace && cfg && (
+              {(phase === 'analyzing' || phase === 'running-agent') && !incidentId && (
                 <motion.div
-                  key={`${trace.id}-complete`}
-                  initial={{ opacity: 0, y: 28 }}
+                  key="analyzing"
+                  initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
-                  className="space-y-8 bg-white/[0.018] border border-white/[0.07] rounded-3xl p-6 shadow-2xl relative overflow-hidden"
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                  className="flex flex-col items-center justify-center gap-4 py-20 h-full"
                 >
-                  {/* Ambient glow */}
-                  <div className="absolute top-0 right-0 w-[280px] h-[280px] bg-[#8b5cf6]/[0.03] rounded-full blur-3xl pointer-events-none" />
-
-                  {/* Severity + confidence */}
-                  <div className="space-y-4 relative z-10">
-                    <div className="flex items-center justify-between flex-wrap gap-3">
-                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.border} ${cfg.color}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot} animate-pulse`} />
-                        {cfg.label}
-                      </div>
-
-                      {/* Confidence meter */}
-                      <div className="flex items-center gap-3 px-3.5 py-1.5 rounded-full bg-white/[0.03] border border-white/[0.07]">
-                        <span className="text-xs font-mono text-zinc-500 uppercase tracking-wider">Confidence</span>
-                        <div className="w-14 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                          <motion.div
-                            className="h-full bg-gradient-to-r from-[#8b5cf6] to-[#a78bfa] rounded-full"
-                            initial={{ width: '0%' }}
-                            animate={{ width: `${animatedConfidence}%` }}
-                            transition={{ duration: 0.1 }}
-                          />
-                        </div>
-                        <span className="text-xs font-mono font-bold text-[#a78bfa]">
-                          {animatedConfidence}%
-                        </span>
-                      </div>
-                    </div>
-
-                    <TypingLine
-                      text={report.incident}
-                      delay={0}
-                      className="text-lg font-bold text-white leading-tight tracking-tight"
-                    />
+                  <div className="flex items-center gap-2.5">
+                    <VoidLogo size={20} glow={true} />
+                    <span className="text-sm font-mono text-[#a78bfa]">
+                      VOID is reconstructing trace intelligence
+                    </span>
                   </div>
+                  <div className="flex gap-1.5">
+                    {[0, 1, 2].map(i => (
+                      <motion.div
+                        key={i}
+                        animate={{ opacity: [0.2, 1, 0.2] }}
+                        transition={{ repeat: Infinity, duration: 0.75, delay: i * 0.17 }}
+                        className="w-1.5 h-1.5 rounded-full bg-[#8b5cf6]"
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
 
+              {phase === 'sampled' && (
+                <motion.div
+                  key="sampled"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                  className="flex flex-col items-center justify-center gap-4 py-20 h-full"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <VoidLogo size={20} glow={true} />
+                    <span className="text-sm font-mono text-amber-400">
+                      Trace sampled — evaluator running
+                    </span>
+                  </div>
+                  <p className="text-xs font-mono text-zinc-500 max-w-[32ch] text-center leading-relaxed">
+                    The trace was selected for adaptive sampling. Waiting for the evaluator to complete…
+                  </p>
+                  <div className="flex gap-1.5">
+                    {[0, 1, 2].map(i => (
+                      <motion.div
+                        key={i}
+                        animate={{ opacity: [0.2, 1, 0.2] }}
+                        transition={{ repeat: Infinity, duration: 0.75, delay: i * 0.17 }}
+                        className="w-1.5 h-1.5 rounded-full bg-amber-500"
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
 
-                  {/* ── Full Engineering Analysis Report ── */}
-                  {report.engineeringReport && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.4, duration: 0.5 }}
-                      className="relative z-10"
-                    >
-                      {/* Panel header */}
-                      <div className="flex items-center gap-2.5 mb-5">
-                        <div className="w-6 h-6 rounded-lg bg-[#8b5cf6]/15 border border-[#8b5cf6]/30 flex items-center justify-center flex-shrink-0">
-                          <Cpu className="w-3.5 h-3.5 text-[#a78bfa]" />
-                        </div>
-                        <span className="text-sm font-semibold text-white tracking-tight">
-                          Engineering Analysis Report
-                        </span>
-                        <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-                          {report.analysisSource === 'server_evaluated' ? (
-                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />
-                              <span className="text-[9px] font-mono text-emerald-400 uppercase tracking-[0.18em]">Server Evaluated</span>
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />
-                              <span className="text-[9px] font-mono text-amber-400 uppercase tracking-[0.18em]">Local Heuristic</span>
-                            </span>
-                          )}
-                        </div>
-                      </div>
+              {phase === 'analyzing' && incidentId && (
+                <motion.div
+                  key="pipeline"
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <p className="text-xs font-mono text-zinc-500 tracking-wide uppercase mb-4">
+                    Live Investigation Status
+                  </p>
+                  <InvestigationPipeline pipelineState={pipelineState} />
+                </motion.div>
+              )}
 
+              {phase === 'complete' && (
+                <CompletionCard
+                  issueUrl={investigationData?.issueUrl ?? null}
+                  signozTraceUrl={investigationData?.signozTraceUrl ?? null}
+                />
+              )}
 
-                      {/* Scrollable document body */}
-                      <div
-                        className="report-scroll rounded-2xl border border-white/[0.06] divide-y divide-white/[0.05]"
-                        style={{ maxHeight: '60vh' }}
-                      >
-                        {report.engineeringReport.fullReport ? (
-                          <pre className="p-5 text-[0.8rem] text-zinc-200 font-mono leading-relaxed whitespace-pre-wrap break-words">
-                            {report.engineeringReport.fullReport}
-                          </pre>
-                        ) : (
-                          <>
-                            {/* Executive Summary */}
-                            {(report.engineeringReport.executive_summary || report.engineeringReport.summary) && (
-                              <div className="px-5 py-4 bg-white/[0.01] hover:bg-white/[0.025] transition-colors">
-                                <p className="text-[9px] font-mono text-[#a78bfa] uppercase tracking-[0.22em] mb-1.5">Executive Summary</p>
-                                <p className="text-[0.83rem] text-zinc-200 leading-relaxed">
-                                  {report.engineeringReport.executive_summary || report.engineeringReport.summary}
-                                </p>
-                              </div>
-                            )}
+              {phase === 'healthy' && (
+                <motion.div
+                  key="healthy"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex flex-col items-center gap-4 py-14 text-center"
+                >
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                    <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-base font-semibold text-emerald-300">No issues detected</p>
+                    <p className="text-xs font-mono text-zinc-500 max-w-[32ch] leading-relaxed">
+                      The trace was evaluated as healthy. No investigation needed.
+                    </p>
+                  </div>
+                </motion.div>
+              )}
 
-                            {/* Impact */}
-                            {report.engineeringReport.impact && (
-                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
-                                <p className="text-[9px] font-mono text-red-400/70 uppercase tracking-[0.22em] mb-1.5">Impact</p>
-                                <p className="text-[0.83rem] text-red-200 leading-relaxed font-medium">{report.engineeringReport.impact}</p>
-                              </div>
-                            )}
-
-                            {/* Root Cause */}
-                            {report.engineeringReport.root_cause && (
-                              <div className="px-5 py-4 bg-[#8b5cf6]/[0.03] hover:bg-[#8b5cf6]/[0.06] transition-colors">
-                                <p className="text-[9px] font-mono text-[#a78bfa] uppercase tracking-[0.22em] mb-1.5">Root Cause</p>
-                                <p className="text-[0.83rem] text-zinc-100 leading-relaxed font-semibold">
-                                  {report.engineeringReport.root_cause}
-                                </p>
-                              </div>
-                            )}
-
-                            {/* Forensic Evidence */}
-                            {report.evidence && report.evidence.length > 0 && (
-                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
-                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Forensic Evidence</p>
-                                <ul className="space-y-2">
-                                  {report.evidence.map((ev, i) => (
-                                    <li key={i} className="flex items-start gap-2.5">
-                                      <span className="w-1 h-1 rounded-full bg-[#8b5cf6]/60 mt-[0.45rem] flex-shrink-0" />
-                                      <span className="text-[0.8rem] text-zinc-300 leading-relaxed">{ev}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-
-                            {/* Suspected Components */}
-                            {report.engineeringReport.suspected_components && report.engineeringReport.suspected_components.length > 0 && (
-                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
-                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Suspected Components</p>
-                                <ul className="space-y-1.5">
-                                  {report.engineeringReport.suspected_components.map((comp, i) => (
-                                    <li key={i} className="flex items-center gap-2">
-                                      <span className="w-1 h-1 rounded-full bg-amber-400/50 flex-shrink-0" />
-                                      <span className="font-mono text-[0.78rem] text-amber-200/80">{comp}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-
-                            {/* Relevant Files */}
-                            {report.engineeringReport.relevant_files && report.engineeringReport.relevant_files.length > 0 && (
-                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
-                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Relevant Files</p>
-                                <ul className="space-y-1.5">
-                                  {report.engineeringReport.relevant_files.map((f, i) => (
-                                    <li key={i} className="font-mono text-[0.75rem] text-[#a78bfa] pl-3 border-l border-[#8b5cf6]/30">{f}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-
-                            {/* Suggested Fix */}
-                            {report.engineeringReport.suggested_fix && (
-                              <div className="px-5 py-4 bg-emerald-950/10 hover:bg-emerald-950/20 transition-colors">
-                                <p className="text-[9px] font-mono text-emerald-400/70 uppercase tracking-[0.22em] mb-2">Suggested Fix</p>
-                                <p className="font-mono text-[0.78rem] text-emerald-300 leading-relaxed whitespace-pre-wrap">
-                                  {report.engineeringReport.suggested_fix}
-                                </p>
-                              </div>
-                            )}
-
-
-
-                            {/* Suggested Tests */}
-                            {report.engineeringReport.suggested_tests && report.engineeringReport.suggested_tests.length > 0 && (
-                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
-                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Suggested Tests</p>
-                                <ul className="space-y-1.5">
-                                  {report.engineeringReport.suggested_tests.map((t, i) => (
-                                    <li key={i} className="flex items-center gap-2">
-                                      <span className="w-1 h-1 rounded-full bg-zinc-600 flex-shrink-0" />
-                                      <span className="font-mono text-[0.75rem] text-zinc-400">{t}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-
-                            {/* Execution Timeline */}
-                            {report.timeline && report.timeline.length > 0 && (
-                              <div className="px-5 py-4 hover:bg-white/[0.02] transition-colors">
-                                <p className="text-[9px] font-mono text-zinc-500 uppercase tracking-[0.22em] mb-2">Execution Timeline</p>
-                                <div className="space-y-0">
-                                  {report.timeline.map((entry, i) => (
-                                    <div key={i} className="flex items-start gap-3 py-1.5">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-zinc-700 mt-[0.35rem] flex-shrink-0" />
-                                      <span className="font-mono text-[0.72rem] text-zinc-500 leading-snug">{entry}</span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Sampling / Disclaimer */}
-                            {(report.samplingInfo || report.disclaimer) && (
-                              <div className="px-5 py-3 bg-white/[0.008]">
-                                {report.samplingInfo && (
-                                  <p className="text-[0.68rem] font-mono text-zinc-600 mb-0.5">{report.samplingInfo}</p>
-                                )}
-                                {report.disclaimer && (
-                                  <p className="text-[0.65rem] font-mono text-zinc-700 leading-snug">{report.disclaimer}</p>
-                                )}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-
-                  {/* OpenTelemetry spans inspector */}
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 3.0, duration: 0.5 }}
-                    className="relative z-10"
-                  >
-                    <button
-                      onClick={() => setEvidenceOpen(v => !v)}
-                      className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/[0.11] transition-all duration-300 group"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-zinc-400 group-hover:text-zinc-200 transition-colors font-medium">
-                          {evidenceOpen ? 'Hide spans' : 'Inspect spans'}
-                        </span>
-                        <span className="text-[10px] font-mono text-zinc-600">
-                          ({trace.steps.length} captured)
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={`http://localhost:8080/trace/${trace.traceId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={e => e.stopPropagation()}
-                          className="text-[10px] font-mono text-zinc-500 hover:text-[#a78bfa] transition-colors flex items-center gap-1 px-2 py-0.5 rounded border border-white/[0.04] hover:border-[#8b5cf6]/28"
-                        >
-                          SigNoz <ExternalLink className="w-2 h-2" />
-                        </a>
-                        <ChevronDown className={`w-3.5 h-3.5 text-zinc-600 transition-transform duration-300 ${evidenceOpen ? 'rotate-180' : ''}`} />
-                      </div>
-                    </button>
-
-                    <AnimatePresence>
-                      {evidenceOpen && (
-                        <motion.div
-                          initial={{ opacity: 0, height: 0 }}
-                          animate={{ opacity: 1, height: 'auto' }}
-                          exit={{ opacity: 0, height: 0 }}
-                          transition={{ duration: 0.38, ease: [0.16, 1, 0.3, 1] }}
-                          className="overflow-hidden"
-                        >
-                          <div className="pt-3 space-y-1">
-                            {trace.steps.map((step, idx) => (
-                              <div
-                                key={step.id}
-                                className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-mono ${
-                                  step.status === 'error'
-                                    ? 'bg-red-950/14 border border-red-500/18 text-red-300'
-                                    : 'bg-white/[0.013] border border-white/[0.04] text-zinc-400'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="text-zinc-700 text-[10px] w-4 flex-shrink-0">{String(idx + 1).padStart(2, '0')}</span>
-                                  <span className="truncate text-[10px]">{step.label}</span>
-                                </div>
-                                <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 flex-shrink-0 ml-2">
-                                  <span className="font-mono">{step.durationMs}ms</span>
-                                  <span className={`px-1.5 py-0.5 rounded ${
-                                    step.status === 'error'
-                                      ? 'bg-red-950/30 text-red-400'
-                                      : 'bg-white/[0.04] text-zinc-500'
-                                  }`}>{step.kind}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </motion.div>
+              {phase === 'failed' && (
+                <motion.div
+                  key="error"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center gap-4 py-14 text-center"
+                >
+                  <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                    <AlertTriangle className="w-5 h-5 text-red-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-red-300">
+                      {failedStage ? `${failedStage.replace(/_/g, ' ')} Failed` : 'Investigation Failed'}
+                    </p>
+                    <p className="text-xs font-mono text-red-400/70 max-w-[36ch] leading-relaxed">
+                      {failedStage ? getStageErrorMessage(failedStage, error ?? undefined) : error}
+                    </p>
+                  </div>
+                  <p className="text-[11px] text-zinc-600 font-mono">
+                    The incident has been preserved. Please retry or inspect server logs.
+                  </p>
                 </motion.div>
               )}
             </AnimatePresence>
           </div>
-
         </div>
 
+        <div className="pt-8 border-t border-white/[0.05] space-y-8">
+          <div className="text-center space-y-3">
+            <p className="text-overline text-[#a78bfa] uppercase tracking-[0.2em]">Architecture Vision</p>
+            <h3 className="font-[700] tracking-[-0.03em] text-white leading-tight" style={{ fontSize: 'clamp(1.35rem, 2.5vw, 1.85rem)' }}>
+              The SDK stays untouched. Only the consumer transforms.
+            </h3>
+            <p className="text-sm text-zinc-400 max-w-[48ch] mx-auto leading-relaxed">
+              See how VOID evolves from today's deterministic analyzer into tomorrow's autonomous incident server.
+            </p>
+          </div>
 
+          <div className="p-6 md:p-8 rounded-3xl bg-white/[0.014] border border-white/[0.07] space-y-4 text-left">
+            <div className="flex items-center gap-3 text-xs font-mono text-zinc-400">
+              <span className="w-2 h-2 rounded-full bg-[#8b5cf6]" />
+              <span>SDK Instrumentation → Backend Pipeline → Engineering Report</span>
+            </div>
+            <h4 className="text-base font-bold text-white">Real Backend Investigation Pipeline</h4>
+            <p className="text-sm text-zinc-400 leading-relaxed">
+              OpenTelemetry spans flow into the VOID Server which runs risk evaluation,
+              incident formation, LLM evaluator, promotion gate, and issue agent —
+              producing a canonical engineering report from real backend processing.
+            </p>
+          </div>
+        </div>
       </div>
-
-      {/* Walkthrough modal */}
-      <WalkthroughModal
-        isOpen={isWalkthroughOpen}
-        onClose={onCloseWalkthrough}
-        onSelectTraceIndex={(index) => {
-          const matchIdx = SCENARIOS.findIndex((s) => s.index === index);
-          if (matchIdx !== -1) handleSelectScenario(matchIdx);
-        }}
-      />
     </div>
   );
 }
@@ -1446,7 +1115,6 @@ const NavDots = memo(function NavDots({
 export const KeynotePresentation: React.FC = () => {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [mode, setMode] = useState<PresentationMode>('slides');
-  const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
 
   const goTo = useCallback((idx: number) => {
     setCurrentSlide(Math.max(0, Math.min(TOTAL_SLIDES - 1, idx)));
@@ -1600,12 +1268,7 @@ export const KeynotePresentation: React.FC = () => {
             transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
             className="absolute inset-0"
           >
-            <DemoProductShell
-              onBackToDeck={exitDemo}
-              isWalkthroughOpen={isWalkthroughOpen}
-              onOpenWalkthrough={() => setIsWalkthroughOpen(true)}
-              onCloseWalkthrough={() => setIsWalkthroughOpen(false)}
-            />
+            <DemoProductShell onBackToDeck={exitDemo} />
           </motion.div>
         )}
       </AnimatePresence>
